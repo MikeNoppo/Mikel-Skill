@@ -136,7 +136,7 @@ def update_meta(sid, **changes):
 def git(cwd, *args, ok=(0,)):
     try:
         result = subprocess.run(
-            ["git", "-C", str(cwd), *args],
+            ["git", "-c", "core.quotePath=false", "-C", str(cwd), *args],
             capture_output=True,
             text=True,
             errors="replace",

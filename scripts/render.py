@@ -147,18 +147,19 @@ def lines_of(text):
     return [line for line in (text or "").splitlines() if line]
 
 
+def records(repo, *args, ok=(0,)):
+    return [item for item in (common.git(repo, *args, ok=ok) or "").split("\0") if item]
+
+
 def name_status(repo, base):
-    statuses = {}
-    for line in lines_of(common.git(repo, "diff", "--name-status", "--no-renames", base)):
-        letter, _, path = line.partition("\t")
-        statuses[path] = letter[:1]
-    return statuses
+    items = records(repo, "diff", "--name-status", "--no-renames", "-z", base)
+    return {items[index + 1]: items[index][:1] for index in range(0, len(items) - 1, 2)}
 
 
 def numstat(repo, *args):
     stats = {}
-    for line in lines_of(common.git(repo, "diff", "--numstat", "--no-renames", *args, ok=(0, 1))):
-        parts = line.split("\t", 2)
+    for item in records(repo, "diff", "--numstat", "--no-renames", "-z", *args, ok=(0, 1)):
+        parts = item.split("\t", 2)
         if len(parts) == 3:
             stats[parts[2]] = (parts[0], parts[1])
     return stats
@@ -186,9 +187,9 @@ def repo_facts(repo, base, session_paths):
     if head and base != head:
         span = "HEAD" if base == EMPTY_TREE else f"{base}..HEAD"
         commits = [line.split("\t", 1) for line in lines_of(common.git(repo, "log", "--reverse", "--format=%h%x09%s", span)) if "\t" in line]
-        committed = set(lines_of(common.git(repo, "diff", "--name-only", "--no-renames", base, "HEAD")))
-    fresh = set(lines_of(common.git(repo, "ls-files", "--others", "--exclude-standard")))
-    dirty = fresh | (set(lines_of(common.git(repo, "diff", "--name-only", "--no-renames", "HEAD"))) if head else set(name_status(repo, EMPTY_TREE)))
+        committed = set(records(repo, "diff", "--name-only", "--no-renames", "-z", base, "HEAD"))
+    fresh = set(records(repo, "ls-files", "-z", "--others", "--exclude-standard"))
+    dirty = fresh | (set(records(repo, "diff", "--name-only", "--no-renames", "-z", "HEAD")) if head else set(name_status(repo, EMPTY_TREE)))
     statuses = name_status(repo, base)
     stats = numstat(repo, base)
     files = []
