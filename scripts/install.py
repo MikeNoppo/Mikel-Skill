@@ -1,8 +1,9 @@
 import json
-import os
 import shutil
 import sys
 from pathlib import Path
+
+import common
 
 SCRIPTS = Path(__file__).resolve().parent
 PYTHON = "/usr/bin/python3"
@@ -48,11 +49,7 @@ def save(path, config):
     if path.exists():
         shutil.copy2(path, path.with_name(f"{path.name}.bak-session-report"))
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    temporary.write_text(json.dumps(config, indent=2, ensure_ascii=False) + "\n")
-    if path.exists():
-        shutil.copymode(path, temporary)
-    os.replace(temporary, path)
+    common.write_atomic(path, json.dumps(config, indent=2, ensure_ascii=False) + "\n")
 
 
 def install_claude(home):

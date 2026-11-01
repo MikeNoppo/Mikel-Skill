@@ -626,12 +626,6 @@ def build(sid, report, groups, harness, moment, bases):
     return page(f"Laporan sesi: {report['title']}", body)
 
 
-def write_atomic(path, text):
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    temporary.write_text(text)
-    os.replace(temporary, path)
-
-
 def point_latest(path):
     link = common.root() / "latest.html"
     temporary = link.with_name(f".latest.{os.getpid()}.tmp")
@@ -674,7 +668,7 @@ def write_index():
         f'<p>Semua sesi Claude Code dan Codex yang punya laporan, terbaru di atas.</p></div></header>'
         f'<main><section id="semua"><h2>Semua laporan</h2>{table}</section></main>'
     )
-    write_atomic(common.root() / "index.html", page("Laporan sesi", body))
+    common.write_atomic(common.root() / "index.html", page("Laporan sesi", body))
 
 
 def browser(path):
@@ -724,7 +718,7 @@ def render(session, report_path, harness="claude", notify_user=True, cwd=None, o
     moment = datetime.now()
     bases = [cwd] + [group["root"] for group in groups if group["git"]]
     path = output_path(sid, meta, groups, cwd)
-    write_atomic(path, build(sid, report, groups, harness, moment, bases))
+    common.write_atomic(path, build(sid, report, groups, harness, moment, bases))
     common.update_meta(
         sid,
         html=str(path),

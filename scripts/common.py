@@ -2,6 +2,7 @@ import fcntl
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import time
@@ -94,15 +95,24 @@ def load_meta(sid):
     return data if isinstance(data, dict) else {}
 
 
+def write_atomic(path, data):
+    path = Path(path)
+    mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else 0o600
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, mode)
+    with os.fdopen(descriptor, "wb" if isinstance(data, bytes) else "w") as handle:
+        handle.write(data)
+    os.chmod(temporary, mode)
+    os.replace(temporary, path)
+
+
 @contextmanager
 def locked_meta(sid):
     with (state_dir() / f"{sid}.lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         meta = load_meta(sid)
         yield meta
-        temporary = meta_path(sid).with_name(f"{sid}.json.{os.getpid()}.tmp")
-        temporary.write_text(json.dumps(meta, ensure_ascii=False, indent=2))
-        os.replace(temporary, meta_path(sid))
+        write_atomic(meta_path(sid), json.dumps(meta, ensure_ascii=False, indent=2))
 
 
 def update_meta(sid, **changes):
