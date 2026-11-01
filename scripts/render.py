@@ -446,11 +446,15 @@ def implementation_section(groups):
 
 def diff_html(entry):
     rows = []
+    header = True
     for line in entry["diff"]:
-        if line.startswith(("diff --git", "index ", "--- ", "+++ ", "new file", "deleted file", "similarity", "old mode", "new mode")):
-            cls = "m"
-        elif line.startswith("@@"):
+        if line.startswith("diff --git"):
+            header = True
+        if line.startswith("@@"):
+            header = False
             cls = "h"
+        elif header:
+            cls = "m"
         elif line.startswith("+"):
             cls = "a"
         elif line.startswith("-"):
