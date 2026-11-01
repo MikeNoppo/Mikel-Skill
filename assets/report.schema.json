@@ -1,0 +1,273 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "session-report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "skip",
+    "title",
+    "summary",
+    "status",
+    "status_note",
+    "pills",
+    "extra_stats",
+    "checklist",
+    "decisions",
+    "built",
+    "key_decisions",
+    "architecture",
+    "flows",
+    "lifecycle",
+    "repos",
+    "code_review",
+    "tests",
+    "e2e",
+    "tradeoffs",
+    "out_of_scope",
+    "next_steps"
+  ],
+  "properties": {
+    "skip": {"type": "boolean"},
+    "title": {"type": "string"},
+    "summary": {"type": "string"},
+    "status": {"type": "string", "enum": ["siap", "hampir", "sebagian", "blocked"]},
+    "status_note": {"type": "string"},
+    "pills": {"type": "array", "items": {"type": "string"}},
+    "extra_stats": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["value", "label"],
+        "properties": {
+          "value": {"type": "string"},
+          "label": {"type": "string"}
+        }
+      }
+    },
+    "checklist": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["label", "state", "evidence"],
+        "properties": {
+          "label": {"type": "string"},
+          "state": {"type": "string", "enum": ["ok", "warn", "bad", "skip"]},
+          "evidence": {"type": "string"}
+        }
+      }
+    },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "kind", "context", "options", "recommendation"],
+        "properties": {
+          "title": {"type": "string"},
+          "kind": {"type": "string", "enum": ["pertanyaan", "asumsi", "validasi", "tradeoff"]},
+          "context": {"type": "string"},
+          "options": {"type": "array", "items": {"type": "string"}},
+          "recommendation": {"type": "string"}
+        }
+      }
+    },
+    "built": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "what", "why"],
+        "properties": {
+          "title": {"type": "string"},
+          "what": {"type": "string"},
+          "why": {"type": "string"}
+        }
+      }
+    },
+    "key_decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["topic", "decision", "why"],
+        "properties": {
+          "topic": {"type": "string"},
+          "decision": {"type": "string"},
+          "why": {"type": "string"}
+        }
+      }
+    },
+    "architecture": {"anyOf": [{"$ref": "#/$defs/diagram"}, {"type": "null"}]},
+    "flows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "before", "after"],
+        "properties": {
+          "name": {"type": "string"},
+          "before": {"anyOf": [{"$ref": "#/$defs/diagram"}, {"type": "null"}]},
+          "after": {"$ref": "#/$defs/diagram"}
+        }
+      }
+    },
+    "lifecycle": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["entity", "diagram"],
+        "properties": {
+          "entity": {"type": "string"},
+          "diagram": {"$ref": "#/$defs/diagram"}
+        }
+      }
+    },
+    "repos": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "summary", "notes", "files"],
+        "properties": {
+          "path": {"type": "string"},
+          "summary": {"type": "string"},
+          "notes": {"type": "array", "items": {"type": "string"}},
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "reason"],
+              "properties": {
+                "path": {"type": "string"},
+                "reason": {"type": "string"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "code_review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ran", "source", "findings"],
+      "properties": {
+        "ran": {"type": "boolean"},
+        "source": {"type": "string"},
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["title", "status", "resolution", "evidence"],
+            "properties": {
+              "title": {"type": "string"},
+              "status": {"type": "string", "enum": ["fixed", "not_fixed", "accepted", "needs_validation", "open"]},
+              "resolution": {"type": "string"},
+              "evidence": {"type": "string"}
+            }
+          }
+        }
+      }
+    },
+    "tests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["layer", "scope", "command", "result", "detail"],
+        "properties": {
+          "layer": {"type": "string"},
+          "scope": {"type": "string"},
+          "command": {"type": "string"},
+          "result": {"type": "string", "enum": ["pass", "fail", "partial", "not_run"]},
+          "detail": {"type": "string"}
+        }
+      }
+    },
+    "e2e": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["environment", "scenarios", "steps"],
+          "properties": {
+            "environment": {"type": "string"},
+            "scenarios": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["area", "name", "result", "detail"],
+                "properties": {
+                  "area": {"type": "string"},
+                  "name": {"type": "string"},
+                  "result": {"type": "string", "enum": ["pass", "fail"]},
+                  "detail": {"type": "string"}
+                }
+              }
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["title", "action", "expected", "observed", "result", "screenshot"],
+                "properties": {
+                  "title": {"type": "string"},
+                  "action": {"type": "string"},
+                  "expected": {"type": "string"},
+                  "observed": {"type": "string"},
+                  "result": {"type": "string", "enum": ["pass", "fail"]},
+                  "screenshot": {"type": "string"}
+                }
+              }
+            }
+          }
+        },
+        {"type": "null"}
+      ]
+    },
+    "tradeoffs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["level", "item", "impact"],
+        "properties": {
+          "level": {"type": "string", "enum": ["perhatian", "sedang", "rendah", "temuan_lama"]},
+          "item": {"type": "string"},
+          "impact": {"type": "string"}
+        }
+      }
+    },
+    "out_of_scope": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["item", "why", "prompt"],
+        "properties": {
+          "item": {"type": "string"},
+          "why": {"type": "string"},
+          "prompt": {"type": "string"}
+        }
+      }
+    },
+    "next_steps": {"type": "array", "items": {"type": "string"}}
+  },
+  "$defs": {
+    "diagram": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mermaid", "explanation"],
+      "properties": {
+        "mermaid": {"type": "string"},
+        "explanation": {"type": "string"}
+      }
+    }
+  }
+}
