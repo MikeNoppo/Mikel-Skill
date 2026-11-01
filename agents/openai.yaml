@@ -1,0 +1,5 @@
+interface:
+  display_name: "Session Report"
+  short_description: "Laporan sesi HTML untuk review cepat"
+policy:
+  allow_implicit_invocation: false
