@@ -21,7 +21,16 @@ def root():
     path = Path(value)
     if not path.is_absolute() or path in (Path("/"), Path.home()):
         raise ValueError(f"SESSION_REPORT_DIR must be an absolute path other than / and $HOME: {value}")
-    path.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        path.mkdir(mode=0o700)
+    except FileExistsError:
+        pass
+    info = path.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid():
+        raise ValueError(f"{path} must be a real directory owned by you")
+    if stat.S_IMODE(info.st_mode) & 0o077:
+        path.chmod(0o700)
     return path
 
 
@@ -108,11 +117,14 @@ def write_atomic(path, data):
 
 @contextmanager
 def locked_meta(sid):
-    with (state_dir() / f"{sid}.lock").open("w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    descriptor = os.open(state_dir() / f"{sid}.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
         meta = load_meta(sid)
         yield meta
         write_atomic(meta_path(sid), json.dumps(meta, ensure_ascii=False, indent=2))
+    finally:
+        os.close(descriptor)
 
 
 def update_meta(sid, **changes):
