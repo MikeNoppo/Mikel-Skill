@@ -1,0 +1,114 @@
+{
+  "skip": false,
+  "title": "Multi-Factor Authentication (TOTP) di auth module BE",
+  "summary": "Login dua langkah dengan aplikasi authenticator (TOTP) sudah terpasang di BE: enroll, verifikasi saat login, recovery code, dan reset oleh admin. Semua test BE lulus dan temuan code review sudah ditangani, kecuali satu yang perlu kamu putuskan.",
+  "status": "hampir",
+  "status_note": "Kode dan test lengkap, tinggal satu keputusan soal sesi lama sebelum PR.",
+  "pills": ["TOTP + 10 recovery code", "CMS: MFA wajib", "Portal: MFA opsional", "Belum di-push"],
+  "extra_stats": [{"value": "42", "label": "test BE lulus (6 baru)"}],
+  "checklist": [
+    {"label": "Test unit + integration BE", "state": "ok", "evidence": "`go test ./...` dijalankan 23:41, 42 lulus, 0 gagal"},
+    {"label": "Build", "state": "ok", "evidence": "`go build ./...` sukses"},
+    {"label": "Code review", "state": "warn", "evidence": "`/code-review` dijalankan, 1 temuan perlu validasi"},
+    {"label": "Lint", "state": "skip", "evidence": "Tidak dijalankan di sesi ini"}
+  ],
+  "decisions": [
+    {
+      "title": "Sesi CMS lama yang belum enroll MFA",
+      "kind": "tradeoff",
+      "context": "Pengguna CMS yang sudah login sebelum rollout masih bisa refresh token tanpa pernah memasang authenticator.",
+      "options": ["Opsi A: tolak refresh sampai akun enroll (lebih aman, pengguna aktif terpaksa login ulang)", "Opsi B: biarkan sampai sesi habis sendiri (maks 30 hari)"],
+      "recommendation": "Opsi A, sudah diimplementasikan di commit terakhir. Kalau setuju, tidak perlu perubahan."
+    },
+    {
+      "title": "Toleransi waktu TOTP ±1 step",
+      "kind": "asumsi",
+      "context": "Saya memakai toleransi ±30 detik untuk selisih jam ponsel tanpa menanyakannya dulu.",
+      "options": [],
+      "recommendation": "Pertahankan; anti-replay mencegah kode dipakai dua kali."
+    }
+  ],
+  "built": [
+    {"title": "Login dua langkah", "what": "Setelah password benar, BE mengembalikan challenge dan cookie `cms_mfa`; login baru selesai setelah kode 6 digit diverifikasi.", "why": "Password saja tidak cukup untuk akun CMS yang punya akses data sensitif."},
+    {"title": "Recovery code", "what": "10 kode sekali pakai (80 bit) dibuat saat enroll dan disimpan sebagai hash.", "why": "Supaya pengguna yang kehilangan ponsel tetap bisa masuk tanpa bantuan admin."},
+    {"title": "Reset MFA oleh admin", "what": "Endpoint IAM untuk menghapus faktor seorang user.", "why": "Jalur pemulihan terakhir kalau recovery code juga hilang."}
+  ],
+  "key_decisions": [
+    {"topic": "Dependency baru", "decision": "Tidak ada, TOTP memakai stdlib", "why": "Sesuai aturan DRY dan menghindari dependency tambahan"},
+    {"topic": "Penyimpanan secret", "decision": "AES-256-GCM dengan `MFA_ENCRYPTION_KEY`", "why": "Secret TOTP tidak boleh tersimpan polos di DB"}
+  ],
+  "architecture": {
+    "mermaid": "flowchart LR\n  CMS[FE CMS] -->|password| AUTH[Auth controller]:::ubah\n  AUTH --> MFA[MFA service]:::baru\n  MFA --> DB[(Postgres)]\n  MFA --> KEY[Crypto helper]:::ubah",
+    "explanation": "MFA service baru berada di belakang auth controller; crypto helper dipakai bersama dengan notifikasi."
+  },
+  "flows": [
+    {
+      "name": "Login CMS",
+      "before": {
+        "mermaid": "sequenceDiagram\n  participant U as Pengguna\n  participant B as BE\n  U->>B: POST /cms/auth/login\n  B-->>U: 200 + session cookie",
+        "explanation": "Password benar langsung menghasilkan sesi."
+      },
+      "after": {
+        "mermaid": "sequenceDiagram\n  participant U as Pengguna\n  participant B as BE\n  U->>B: POST /cms/auth/login\n  B-->>U: 200 challenge + cookie cms_mfa\n  U->>B: POST /cms/auth/mfa/verify (kode)\n  B-->>U: 200 + session cookie",
+        "explanation": "Sesi baru dibuat setelah kode TOTP atau recovery code diverifikasi."
+      }
+    }
+  ],
+  "lifecycle": [
+    {
+      "entity": "Challenge login MFA",
+      "diagram": {
+        "mermaid": "stateDiagram-v2\n  [*] --> Terbuka: password benar\n  Terbuka --> Selesai: kode benar\n  Terbuka --> Terkunci: 5 kode salah\n  Terbuka --> Kedaluwarsa: 5 menit\n  Selesai --> [*]",
+        "explanation": "Challenge hanya bisa dipakai sekali dan ditutup saat MFA dinonaktifkan."
+      }
+    }
+  ],
+  "repos": [
+    {
+      "path": ".",
+      "summary": "Faktor TOTP, alur login dua langkah, dan endpoint akun MFA.",
+      "notes": ["`/cms/auth/mfa/` dikecualikan dari auto-refresh 401", "Migrasi baru `mfa_factors`"],
+      "files": [
+        {"path": "auth/mfa.go", "reason": "Service MFA: enroll, verify, recovery code"},
+        {"path": "auth/login.go", "reason": "Login mengembalikan challenge kalau akun punya faktor"}
+      ]
+    }
+  ],
+  "code_review": {
+    "ran": true,
+    "source": "/code-review (xhigh)",
+    "findings": [
+      {"title": "Sesi lama bisa diperpanjang lewat refresh", "status": "fixed", "resolution": "`requireEnrolled` di refresh dan unlock", "evidence": "integration test"},
+      {"title": "Recovery code 50 bit", "status": "fixed", "resolution": "Dinaikkan ke 80 bit", "evidence": "unit test"},
+      {"title": "Urutan lock bisa deadlock", "status": "needs_validation", "resolution": "Ditemukan reviewer dengan verdict PLAUSIBLE, belum direproduksi", "evidence": ""},
+      {"title": "Nama helper kurang jelas", "status": "accepted", "resolution": "Dibiarkan, mengikuti konvensi package yang ada", "evidence": ""}
+    ]
+  },
+  "tests": [
+    {"layer": "BE unit", "scope": "Vektor RFC 6238, drift ±1, format recovery code", "command": "go test ./auth/...", "result": "pass", "detail": "18 test"},
+    {"layer": "BE integration", "scope": "Enroll, verify, lockout, reset admin", "command": "go test ./... -tags integration", "result": "pass", "detail": "24 test"}
+  ],
+  "e2e": {
+    "environment": "BE dari branch MFA + Postgres container sekali pakai, CMS dev dikendalikan Playwright.",
+    "scenarios": [
+      {"area": "CMS", "name": "Enroll wajib saat login pertama", "result": "pass", "detail": ""},
+      {"area": "API", "name": "Kode salah 5 kali mengunci challenge", "result": "pass", "detail": "429 mfa_locked"}
+    ],
+    "steps": [
+      {"title": "CMS menampilkan intro enroll", "action": "Login dengan akun CMS tanpa faktor", "expected": "Halaman enroll muncul", "observed": "Halaman enroll dengan QR muncul", "result": "pass", "screenshot": "shot.png"},
+      {"title": "Verifikasi kode salah", "action": "POST /cms/auth/mfa/verify dengan kode 000000", "expected": "400 mfa_code_invalid", "observed": "400 mfa_code_invalid, sisa percobaan 4", "result": "pass", "screenshot": ""}
+    ]
+  },
+  "tradeoffs": [
+    {"level": "perhatian", "item": "`MFA_ENCRYPTION_KEY` tanpa rotasi", "impact": "Mengganti kunci membuat semua secret tidak terbaca."},
+    {"level": "rendah", "item": "Dua entri authenticator untuk satu orang", "impact": "Konsekuensi faktor per aplikasi."}
+  ],
+  "out_of_scope": [
+    {"item": "Notifikasi email saat MFA diubah", "why": "Mitigasi untuk trust-on-first-use saat enroll.", "prompt": "Tambahkan notifikasi email saat faktor MFA diaktifkan, diganti, atau direset di SI-ISPO-BE."}
+  ],
+  "next_steps": [
+    "Putuskan opsi sesi lama (lihat Butuh keputusanmu).",
+    "Setel `MFA_ENCRYPTION_KEY` di secret manager sebelum deploy.",
+    "Push branch lalu buka PR ke `develop`."
+  ]
+}
