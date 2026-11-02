@@ -1,4 +1,5 @@
 import json
+import hashlib
 import os
 import subprocess
 import sys
@@ -46,7 +47,7 @@ class SessionReportTest(unittest.TestCase):
         self.reports = self.base / "reports"
         self.repo = self.base / "SI-ISPO-BE"
         (self.repo / "auth").mkdir(parents=True)
-        self.env = {**os.environ, "SESSION_REPORT_DIR": str(self.reports), "SESSION_REPORT_NOTIFY": "0", "SESSION_REPORT_DELAY": "0"}
+        self.env = {**os.environ, "SESSION_REPORT_DIR": str(self.reports), "SESSION_REPORT_NOTIFY": "0", "SESSION_REPORT_DELAY": "0", "SESSION_REPORT_COOLDOWN": "0", "CLAUDE_CODE_SESSION_ID": SID}
         self.env.pop("SESSION_REPORT_CHILD", None)
         self.git("init", "-q", "-b", "develop")
         self.git("config", "user.email", "test@example.com")
@@ -72,8 +73,8 @@ class SessionReportTest(unittest.TestCase):
             cwd=cwd or self.repo,
         )
 
-    def track(self, tool_name, tool_input, sid=SID):
-        result = self.run_script("track.py", {"session_id": sid, "cwd": str(self.repo), "tool_name": tool_name, "tool_input": tool_input})
+    def track(self, tool_name, tool_input, sid=SID, event="PostToolUse"):
+        result = self.run_script("track.py", {"session_id": sid, "cwd": str(self.repo), "hook_event_name": event, "tool_name": tool_name, "tool_input": tool_input})
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def gate(self, harness="claude", **fields):
@@ -91,6 +92,7 @@ class SessionReportTest(unittest.TestCase):
         return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
 
     def edit_login(self):
+        self.track("Edit", {"file_path": str(self.repo / "auth" / "login.go")}, event="PreToolUse")
         (self.repo / "auth" / "login.go").write_text("package auth\n\nfunc Login() error { return challenge() }\n")
         self.track("Edit", {"file_path": str(self.repo / "auth" / "login.go")})
 
@@ -125,7 +127,7 @@ class SessionReportTest(unittest.TestCase):
         self.assertEqual(output["decision"], "block")
         self.assertIn(SID, output["reason"])
         self.assertIn('subagent_type "fork"', output["reason"])
-        self.track("Agent", {"description": "session-report", "subagent_type": "fork", "prompt": "..."})
+        self.track("Agent", {"description": "session-report", "subagent_type": "fork", "run_in_background": True, "prompt": f"Read {SCRIPTS.parent / 'SKILL.md'}. Session id: {SID}"})
         self.assertEqual(self.gate(), {})
         self.track("Edit", {"file_path": str(self.repo / "auth" / "login.go")})
         self.assertEqual(self.gate()["decision"], "block")
@@ -146,13 +148,13 @@ class SessionReportTest(unittest.TestCase):
         self.assertEqual(paths, [str(self.repo / "auth" / "login.go"), str(self.repo / "auth" / "mfa.go")])
         self.assertIn(str(self.repo), self.meta()["repos"])
 
-    def test_track_commit_in_unknown_repo_uses_previous_head(self):
-        base = self.git("rev-parse", "HEAD")
-        (self.repo / "auth" / "login.go").write_text("package auth\n")
-        self.git("commit", "-qam", "feat(auth): change")
-        self.track("Bash", {"command": "git -C . commit -am 'feat(auth): change'"})
-        self.assertEqual(self.journal()[0]["kind"], "git")
-        self.assertEqual(self.meta()["repos"][str(self.repo)]["base"], base)
+    def test_read_only_git_text_does_not_capture_old_commit(self):
+        self.track("Bash", {"command": 'rg "git commit" README.md'}, event="PreToolUse")
+        self.track("Bash", {"command": 'rg "git commit" README.md'})
+        self.assertEqual(self.journal(), [])
+        self.assertEqual(self.gate(), {})
+        self.assertEqual(self.meta()["repos"][str(self.repo)]["commits"], [])
+
 
     def test_track_counts_review_findings(self):
         self.track("ReportFindings", {"findings": []})
@@ -161,6 +163,7 @@ class SessionReportTest(unittest.TestCase):
 
     def test_render_full_report(self):
         self.edit_login()
+        self.track("Bash", {"command": "git commit"}, event="PreToolUse")
         self.git("commit", "-qam", "feat(auth): return a challenge at sign-in")
         self.track("Bash", {"command": "git commit -am 'feat(auth): return a challenge at sign-in'"})
         (self.repo / "auth" / "mfa.go").write_text("package auth\n\nfunc challenge() error { return nil }\n")
@@ -168,13 +171,13 @@ class SessionReportTest(unittest.TestCase):
         result = self.render(self.write_report())
         self.assertEqual(result.returncode, 0, result.stderr)
         html_path = Path(result.stdout.strip())
-        self.assertEqual(html_path, self.reports / f"SI-ISPO-BE-{SID[:8]}.html")
+        self.assertEqual(html_path, self.reports / f"SI-ISPO-BE-{hashlib.sha256(SID.encode()).hexdigest()[:12]}.html")
         page = html_path.read_text()
         for anchor in ("ringkasan", "keputusan", "dibuat", "arsitektur", "alur", "siklus", "implementasi", "file", "review", "pengujian", "e2e", "tradeoff", "luar", "lanjut"):
             self.assertIn(f'<section id="{anchor}">', page)
         self.assertLess(page.index('id="ringkasan"'), page.index('id="keputusan"'))
         self.assertLess(page.index('id="keputusan"'), page.index('id="dibuat"'))
-        self.assertEqual(page.count("data:image/png;base64,"), 1)
+        self.assertEqual(page.count('src="data:image/png;base64,'), 1)
         self.assertIn("feat(auth): return a challenge at sign-in", page)
         self.assertIn('<span class="a">+func Login() error { return challenge() }</span>', page)
         self.assertIn('<span class="a">+func challenge() error { return nil }</span>', page)
@@ -210,7 +213,7 @@ class SessionReportTest(unittest.TestCase):
         report = self.write_report(e2e={**fixture["e2e"], "steps": steps})
         page = Path(self.render(report).stdout.strip()).read_text()
         self.assertIn("POST /cms/auth/mfa/verify dengan kode 000000", page)
-        self.assertNotIn("data:image", page)
+        self.assertNotIn('src="data:image', page)
 
     def test_render_notifies_through_omarchy_with_a_glyph(self):
         bin_dir = self.base / "bin"
@@ -243,7 +246,7 @@ class SessionReportTest(unittest.TestCase):
         self.edit_login()
         result = self.render(self.write_report(), session="auto")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn(SID[:8], result.stdout)
+        self.assertIn(hashlib.sha256(SID.encode()).hexdigest()[:12], result.stdout)
 
     def run_codex(self, skip):
         fake = self.base / "codex"
@@ -261,13 +264,13 @@ class SessionReportTest(unittest.TestCase):
         self.assertEqual(args[1:4], ["exec", "fork", SID])
         for flag in ("--ephemeral", 'sandbox_mode="read-only"', "--output-schema"):
             self.assertIn(flag, args)
-        self.assertTrue((self.reports / f"SI-ISPO-BE-{SID[:8]}.html").exists())
+        self.assertTrue((self.reports / f"SI-ISPO-BE-{hashlib.sha256(SID.encode()).hexdigest()[:12]}.html").exists())
         self.assertEqual(self.meta()["spawned_count"], 1)
         self.assertEqual(self.gate("codex"), {})
 
     def test_codex_skip_rearms_the_gate(self):
         self.run_codex(skip=True)
-        self.assertFalse((self.reports / f"SI-ISPO-BE-{SID[:8]}.html").exists())
+        self.assertFalse((self.reports / f"SI-ISPO-BE-{hashlib.sha256(SID.encode()).hexdigest()[:12]}.html").exists())
         self.assertEqual(self.meta()["spawned_count"], 0)
 
     def test_install_merges_hooks_once_and_keeps_settings(self):
@@ -292,7 +295,269 @@ class SessionReportTest(unittest.TestCase):
         self.assertEqual(json.loads((home / ".claude" / "settings.json.bak-session-report").read_text()), original)
         codex = json.loads((home / ".codex" / "hooks.json").read_text())
         self.assertIn("--harness codex", codex["hooks"]["Stop"][0]["hooks"][0]["command"])
-        self.assertEqual(codex["hooks"]["PostToolUse"][0]["matcher"], "apply_patch|Edit|Write|Bash")
+        self.assertEqual(codex["hooks"]["PostToolUse"][0]["matcher"], "apply_patch|Edit|Write|Bash|exec_command|shell|local_shell")
+
+
+    def test_manual_render_covers_changes_without_duplicate(self):
+        self.edit_login()
+        self.assertEqual(self.render(self.write_report()).returncode, 0)
+        self.assertEqual(self.gate(), {})
+        self.edit_login()
+        self.assertEqual(self.gate()["decision"], "block")
+
+    def commit_change(self, filename, contents, message):
+        self.track("Bash", {"command": "git commit"}, event="PreToolUse")
+        (self.repo / filename).write_text(contents)
+        self.git("add", filename)
+        self.git("commit", "-qm", message)
+        self.track("Bash", {"command": "git commit"})
+
+    def facts(self):
+        sys.path.insert(0, str(SCRIPTS))
+        import common
+        import render
+        previous = os.environ.get("SESSION_REPORT_DIR")
+        os.environ["SESSION_REPORT_DIR"] = str(self.reports)
+        try:
+            return render.repo_facts(str(self.repo), self.meta().get("repos", {}).get(str(self.repo), {}), ["auth/login.go", "café.txt"])
+        finally:
+            if previous is None:
+                os.environ.pop("SESSION_REPORT_DIR", None)
+            else:
+                os.environ["SESSION_REPORT_DIR"] = previous
+
+    def test_initial_commit_is_session_work(self):
+        self.repo = self.base / "unborn"
+        self.repo.mkdir()
+        self.git("init", "-q", "-b", "main")
+        self.git("config", "user.name", "test")
+        self.git("config", "user.email", "test@example.com")
+        self.commit_change("first.txt", "first\n", "feat(first): add first file")
+        facts = self.facts()
+        self.assertEqual(len(facts["commits"]), 1)
+        self.assertEqual([f["path"] for f in facts["files"]], ["first.txt"])
+
+    def test_merge_and_switch_do_not_claim_other_commits(self):
+        self.git("switch", "-c", "upstream")
+        (self.repo / "foreign.txt").write_text("foreign\n")
+        self.git("add", "foreign.txt")
+        self.git("commit", "-qm", "feat(other): foreign work")
+        self.git("switch", "develop")
+        self.edit_login()
+        self.commit_change("own.txt", "own\n", "feat(own): add own file")
+        self.track("Bash", {"command": "git switch upstream"}, event="PreToolUse")
+        self.git("switch", "upstream")
+        self.track("Bash", {"command": "git switch upstream"})
+        self.assertEqual(self.facts()["commits"], [])
+        self.git("switch", "develop")
+        self.track("Bash", {"command": "git merge upstream"}, event="PreToolUse")
+        self.git("merge", "--no-edit", "upstream")
+        self.track("Bash", {"command": "git merge upstream"})
+        facts = self.facts()
+        self.assertEqual([c[1] for c in facts["commits"]], ["feat(own): add own file"])
+        self.assertNotIn("foreign.txt", [f["path"] for f in facts["files"]])
+
+
+    def test_rebase_keeps_only_session_patches(self):
+        self.git("switch", "-c", "upstream")
+        (self.repo / "foreign.txt").write_text("foreign\n")
+        self.git("add", "foreign.txt")
+        self.git("commit", "-qm", "feat(other): upstream change")
+        self.git("switch", "develop")
+        self.commit_change("own.txt", "mine\n", "feat(own): local change")
+        self.track("Bash", {"command": "git rebase upstream"}, event="PreToolUse")
+        self.git("rebase", "upstream")
+        self.track("Bash", {"command": "git rebase upstream"})
+        self.assertEqual([c[1] for c in self.facts()["commits"]], ["feat(own): local change"])
+        self.assertNotIn("foreign.txt", [f["path"] for f in self.facts()["files"]])
+
+    def test_shell_overwrites_and_new_files_are_captured(self):
+        for content in ("first\n", "second\n"):
+            before = len(self.journal())
+            self.track("Bash", {"command": "python3 writer.py"}, event="PreToolUse")
+            (self.repo / "shell.txt").write_text(content)
+            self.track("Bash", {"command": "python3 writer.py"})
+            self.assertGreater(len(self.journal()), before)
+            paths = [e["path"] for e in self.journal() if e.get("kind") == "edit"]
+            self.assertIn(str(self.repo / "shell.txt"), paths)
+        result = self.render(self.write_report(repos=[]))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        page = Path(result.stdout.strip()).read_text()
+        self.assertTrue('class="path">shell.txt' in page)
+        self.assertTrue('+second' in page)
+
+    def test_git_am_counts_local_application(self):
+        self.git("switch", "-c", "mail-source")
+        (self.repo / "mailed.txt").write_text("mail\n")
+        self.git("add", "mailed.txt")
+        self.git("commit", "-qm", "feat(mail): add mailed file")
+        patch = self.git("format-patch", "-1", "--stdout")
+        self.git("switch", "develop")
+        self.track("Bash", {"command": "git am"}, event="PreToolUse")
+        subprocess.run(["git", "am"], cwd=self.repo, input=patch, text=True, capture_output=True, check=True)
+        self.track("Bash", {"command": "git am"})
+        self.assertEqual(len(self.facts()["commits"]), 1)
+        self.assertEqual([f["path"] for f in self.facts()["files"]], ["mailed.txt"])
+
+    def test_failed_commit_does_not_capture_history(self):
+        self.track("Bash", {"command": "git commit"}, event="PreToolUse")
+        subprocess.run(["git", "commit", "-m", "nothing"], cwd=self.repo, capture_output=True)
+        self.track("Bash", {"command": "git commit"})
+        self.assertEqual(self.gate(), {})
+        self.assertEqual(self.meta()["repos"][str(self.repo)]["commits"], [])
+
+    def test_deleted_sql_comment_is_a_deletion(self):
+        sys.path.insert(0, str(SCRIPTS))
+        import render
+        page = render.diff_html({"diff": ["--- a/x.sql", "+++ b/x.sql", "@@ -1 +1 @@", "--- drop me", "+++ add me"], "truncated": False})
+        self.assertIn('<span class="d">--- drop me</span>', page)
+        self.assertIn('<span class="a">+++ add me</span>', page)
+
+    def test_unicode_and_special_paths_survive(self):
+        for name in ("café.txt", "tab\tline\n.txt"):
+            self.track("Write", {"file_path": str(self.repo / name)}, event="PreToolUse")
+            (self.repo / name).write_text("hello\n")
+            self.track("Write", {"file_path": str(self.repo / name)})
+        self.track("Bash", {"command": "git commit"}, event="PreToolUse")
+        self.git("add", "café.txt", "tab\tline\n.txt")
+        self.git("commit", "-qm", "feat(names): add files")
+        self.track("Bash", {"command": "git commit"})
+        names = [f["path"] for f in self.facts()["files"]]
+        self.assertIn("café.txt", names)
+        self.assertIn("tab\tline\n.txt", names)
+
+    def test_auto_uses_current_harness_id_not_other_journal(self):
+        self.edit_login()
+        other = "codex-thread-unique"
+        env = {**self.env, "CODEX_THREAD_ID": other}
+        result = self.run_script("render.py", None, "auto", str(self.write_report()), "--harness", "codex", env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.meta()["repos"].keys(), {str(self.repo)})
+        self.assertNotIn("html", self.meta())
+        self.assertEqual(self.meta(other)["harness"], "codex")
+        sys.path.insert(0, str(SCRIPTS))
+        import render
+        from unittest.mock import patch
+        with patch.dict(os.environ, {}, clear=True):
+            first = render.resolve_session("auto", "/a/backend")
+            second = render.resolve_session("auto", "/b/backend")
+            self.assertNotEqual(first, second)
+
+    def test_same_session_prefix_does_not_overwrite_html(self):
+        report = self.write_report()
+        first = self.render(report, session="manual-shared-prefix-a")
+        second = self.render(report, session="manual-shared-prefix-b")
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertNotEqual(first.stdout.strip(), second.stdout.strip())
+        self.assertTrue(Path(first.stdout.strip()).exists())
+        self.assertTrue(Path(second.stdout.strip()).exists())
+
+    def test_push_refreshes_report_state(self):
+        remote = self.base / "remote.git"
+        subprocess.run(["git", "init", "--bare", "-q", str(remote)], check=True)
+        self.git("remote", "add", "origin", str(remote))
+        self.git("push", "-qu", "origin", "develop")
+        self.commit_change("pushed.txt", "x\n", "feat(push): add file")
+        self.render(self.write_report())
+        self.track("Bash", {"command": "git push"}, event="PreToolUse")
+        self.git("push", "-q")
+        self.track("Bash", {"command": "git push"})
+        self.assertEqual(self.gate()["decision"], "block")
+        self.assertEqual(self.facts()["ahead"], 0)
+
+    def test_bad_session_and_unreadable_report_are_not_schema_errors(self):
+        for sid, path in (("${CLAUDE_SESSION_ID}", self.write_report()), (SID, self.base / "absent.json")):
+            result = self.render(path, session=sid)
+            self.assertEqual(result.returncode, 1)
+            self.assertNotIn("fix these", result.stderr)
+
+    def test_raw_patch_and_shell_workdir_use_correct_repo(self):
+        patch = "*** Begin Patch\n*** Add File: raw.txt\n+x\n*** End Patch"
+        self.track("apply_patch", patch, event="PreToolUse")
+        (self.repo / "raw.txt").write_text("x\n")
+        self.track("apply_patch", patch)
+        self.assertEqual(self.journal()[0]["path"], str(self.repo / "raw.txt"))
+        payload = {"session_id": SID, "cwd": str(self.base), "tool_name": "exec_command", "tool_input": {"cmd": "git commit", "workdir": str(self.repo)}}
+        self.run_script("track.py", {**payload, "hook_event_name": "PreToolUse"})
+        self.git("add", "raw.txt")
+        self.git("commit", "-qm", "feat(raw): add raw file")
+        result = self.run_script("track.py", {**payload, "hook_event_name": "PostToolUse"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(self.facts()["commits"]), 1)
+
+    def test_unrelated_report_agent_does_not_consume_changes(self):
+        self.edit_login()
+        self.track("Agent", {"description": "review session-report skill", "subagent_type": "fork"})
+        self.track("Agent", {"description": "session-report", "subagent_type": "Explore"})
+        self.assertEqual(self.gate()["decision"], "block")
+
+    def test_offline_bundle_and_no_network_policy(self):
+        self.edit_login()
+        result = self.render(self.write_report())
+        page = Path(result.stdout.strip()).read_text()
+        self.assertTrue('https://cdn.jsdelivr.net/npm/mermaid@11/' not in page)
+        self.assertIn("connect-src 'none'", page)
+        self.assertIn('window.mermaid', page)
+        self.assertNotIn('src="https://', page)
+
+    def test_report_root_and_lock_reject_symlinks(self):
+        target = self.base / "target"
+        target.mkdir()
+        self.reports.symlink_to(target, target_is_directory=True)
+        result = self.run_script("track.py", {"session_id": SID, "tool_name": "ReportFindings"})
+        self.assertNotEqual(result.returncode, 0)
+        self.reports.unlink()
+        self.edit_login()
+        victim = self.base / "victim.txt"
+        victim.write_text("keep")
+        lock = self.reports / ".state" / f"{SID}.lock"
+        lock.unlink()
+        lock.symlink_to(victim)
+        result = self.run_script("track.py", {"session_id": SID, "tool_name": "Bash", "cwd": str(self.repo), "hook_event_name": "PreToolUse", "tool_input": {"command": "git status"}})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(victim.read_text(), "keep")
+        self.assertEqual(self.reports.stat().st_mode & 0o777, 0o700)
+
+    def test_installer_updates_matcher_and_keeps_first_backup(self):
+        home = self.base / "home"
+        env = {**self.env, "HOME": str(home)}
+        settings = home / ".claude/settings.json"
+        settings.parent.mkdir(parents=True)
+        settings.write_text('{"original":true}')
+        self.assertEqual(self.run_script("install.py", env=env).returncode, 0)
+        old = json.loads(settings.read_text())
+        old["hooks"]["PostToolUse"][0]["matcher"] = "Edit"
+        settings.write_text(json.dumps(old))
+        self.assertEqual(self.run_script("install.py", env=env).returncode, 0)
+        installed = json.loads(settings.read_text())
+        self.assertIn("Bash", installed["hooks"]["PostToolUse"][0]["matcher"])
+        self.assertEqual(json.loads(settings.with_name("settings.json.bak-session-report").read_text()), {"original": True})
+        self.assertEqual(len(installed["hooks"]["PostToolUse"]), 1)
+
+    def test_known_repo_post_edits_do_not_rewrite_meta(self):
+        self.edit_login()
+        path = self.reports / ".state" / f"{SID}.json"
+        before = path.stat().st_mtime_ns
+        for _ in range(3):
+            self.track("Edit", {"file_path": str(self.repo / "auth/login.go")}, event="PreToolUse")
+            self.track("Edit", {"file_path": str(self.repo / "auth/login.go")})
+        self.assertEqual(path.stat().st_mtime_ns, before)
+
+    def test_cooldown_keeps_unreported_changes(self):
+        self.edit_login()
+        self.render(self.write_report())
+        self.edit_login()
+        result = self.run_script("gate.py", {"session_id": SID, "cwd": str(self.repo)}, env={**self.env, "SESSION_REPORT_COOLDOWN": "300"})
+        self.assertEqual(json.loads(result.stdout), {})
+        self.assertEqual(self.gate()["decision"], "block")
+
+    def test_report_coverage_does_not_consume_newer_changes(self):
+        self.edit_login()
+        self.edit_login()
+        result = self.run_script("render.py", None, SID, str(self.write_report()), "--covered-count", "1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.gate()["decision"], "block")
 
 
 if __name__ == "__main__":
