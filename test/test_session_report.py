@@ -79,7 +79,7 @@ class SessionReportTest(unittest.TestCase):
 
     def gate(self, harness="claude", **fields):
         payload = {"session_id": SID, "cwd": str(self.repo), "hook_event_name": "Stop", "stop_hook_active": False, "permission_mode": "default", **fields}
-        result = self.run_script("gate.py", payload, "--harness", harness)
+        result = self.run_script("gate.py", payload, "--harness", harness, *(["--check"] if harness == "claude" else []))
         self.assertEqual(result.returncode, 0, result.stderr)
         return json.loads(result.stdout)
 
@@ -124,13 +124,11 @@ class SessionReportTest(unittest.TestCase):
     def test_gate_blocks_once_per_new_change(self):
         self.edit_login()
         output = self.gate()
-        self.assertEqual(output["decision"], "block")
-        self.assertIn(SID, output["reason"])
-        self.assertIn('subagent_type "fork"', output["reason"])
+        self.assertEqual(output, {"ready": True})
         self.track("Agent", {"description": "session-report", "subagent_type": "fork", "run_in_background": True, "prompt": f"Read {SCRIPTS.parent / 'SKILL.md'}. Session id: {SID}"})
         self.assertEqual(self.gate(), {})
         self.track("Edit", {"file_path": str(self.repo / "auth" / "login.go")})
-        self.assertEqual(self.gate()["decision"], "block")
+        self.assertEqual(self.gate(), {"ready": True})
 
     def test_gate_waits_while_a_report_agent_runs(self):
         self.edit_login()
@@ -159,7 +157,7 @@ class SessionReportTest(unittest.TestCase):
     def test_track_counts_review_findings(self):
         self.track("ReportFindings", {"findings": []})
         self.assertEqual(self.journal()[0]["kind"], "review")
-        self.assertEqual(self.gate()["decision"], "block")
+        self.assertEqual(self.gate(), {"ready": True})
 
     def test_render_full_report(self):
         self.edit_login()
@@ -273,6 +271,48 @@ class SessionReportTest(unittest.TestCase):
         self.assertFalse((self.reports / f"SI-ISPO-BE-{hashlib.sha256(SID.encode()).hexdigest()[:12]}.html").exists())
         self.assertEqual(self.meta()["spawned_count"], 0)
 
+    def run_claude(self, skip=False, invalid=False):
+        fake = self.base / "claude"
+        args_path = self.base / "claude-args.json"
+        fake.write_text("#!/usr/bin/python3\nimport json,os,sys\nargs=sys.argv\njson.dump(args,open(os.environ['FAKE_ARGS'],'w'))\nr=json.load(open(os.environ['FAKE_REPORT']))\nr['skip']=os.environ.get('FAKE_SKIP')=='1'\nprint(json.dumps({'is_error':False,'structured_output':r} if os.environ.get('FAKE_INVALID')!='1' else {'is_error':True}))\n")
+        fake.chmod(0o755)
+        self.env.update({"SESSION_REPORT_CLAUDE_BIN": str(fake), "FAKE_REPORT": str(FIXTURE),
+                         "FAKE_ARGS": str(args_path), "FAKE_SKIP": "1" if skip else "0",
+                         "FAKE_INVALID": "1" if invalid else "0", "CLAUDECODE": "1"})
+        self.edit_login()
+        result = self.run_script("gate.py", {"session_id":SID,"cwd":str(self.repo),"model":"claude-parent-test"}, "--harness", "claude")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout), {})
+        self.assertTrue(wait_for(lambda: args_path.exists() and "worker_pid" not in self.meta()))
+        return json.loads(args_path.read_text())
+
+    def test_claude_worker_keeps_model_and_forces_low_effort(self):
+        args = self.run_claude()
+        self.assertEqual(args[args.index("--model")+1], "claude-parent-test")
+        self.assertEqual(args[args.index("--effort")+1], "low")
+        self.assertEqual(args[args.index("--resume")+1], SID)
+        for flag in ("--fork-session", "--no-session-persistence", "--json-schema"):
+            self.assertIn(flag,args)
+        self.assertEqual(args[args.index("--tools")+1], "Read")
+        self.assertEqual(self.meta()["harness"], "claude")
+        self.assertTrue(Path(self.meta()["html"]).exists())
+
+    def test_claude_skip_and_failed_output_rearm_without_report(self):
+        self.run_claude(skip=True)
+        self.assertNotIn("html", self.meta())
+        self.assertEqual(self.meta()["spawned_count"], 0)
+        self.run_claude(invalid=True)
+        self.assertNotIn("html", self.meta())
+        self.assertEqual(self.meta()["spawned_count"], 0)
+
+    def test_claude_model_falls_back_to_transcript(self):
+        transcript=self.base/"session.jsonl"
+        transcript.write_text(json.dumps({"type":"assistant","message":{"model":"claude-original-test"}})+"\n")
+        sys.path.insert(0,str(SCRIPTS))
+        import gate
+        self.assertEqual(gate.original_model({"transcript_path":str(transcript)}),"claude-original-test")
+        self.assertEqual(gate.original_model({"model":"override-test","transcript_path":str(transcript)}),"override-test")
+
     def test_install_merges_hooks_once_and_keeps_settings(self):
         home = self.base / "home"
         settings = home / ".claude" / "settings.json"
@@ -303,7 +343,7 @@ class SessionReportTest(unittest.TestCase):
         self.assertEqual(self.render(self.write_report()).returncode, 0)
         self.assertEqual(self.gate(), {})
         self.edit_login()
-        self.assertEqual(self.gate()["decision"], "block")
+        self.assertEqual(self.gate(), {"ready": True})
 
     def commit_change(self, filename, contents, message):
         self.track("Bash", {"command": "git commit"}, event="PreToolUse")
@@ -379,7 +419,7 @@ class SessionReportTest(unittest.TestCase):
         (self.repo / "auth/login.go").chmod(0o755)
         self.track("Bash", {"command": "chmod +x auth/login.go"})
         self.assertGreater(len(self.journal()), before)
-        self.assertEqual(self.gate()["decision"], "block")
+        self.assertEqual(self.gate(), {"ready": True})
 
     def test_shell_overwrites_and_new_files_are_captured(self):
         for content in ("first\n", "second\n"):
@@ -473,7 +513,7 @@ class SessionReportTest(unittest.TestCase):
         self.track("Bash", {"command": "git push"}, event="PreToolUse")
         self.git("push", "-q")
         self.track("Bash", {"command": "git push"})
-        self.assertEqual(self.gate()["decision"], "block")
+        self.assertEqual(self.gate(), {"ready": True})
         self.assertEqual(self.facts()["ahead"], 0)
 
     def test_bad_session_and_unreadable_report_are_not_schema_errors(self):
@@ -500,7 +540,7 @@ class SessionReportTest(unittest.TestCase):
         self.edit_login()
         self.track("Agent", {"description": "review session-report skill", "subagent_type": "fork"})
         self.track("Agent", {"description": "session-report", "subagent_type": "Explore"})
-        self.assertEqual(self.gate()["decision"], "block")
+        self.assertEqual(self.gate(), {"ready": True})
 
     def test_offline_bundle_and_no_network_policy(self):
         self.edit_login()
@@ -560,14 +600,14 @@ class SessionReportTest(unittest.TestCase):
         self.edit_login()
         result = self.run_script("gate.py", {"session_id": SID, "cwd": str(self.repo)}, env={**self.env, "SESSION_REPORT_COOLDOWN": "300"})
         self.assertEqual(json.loads(result.stdout), {})
-        self.assertEqual(self.gate()["decision"], "block")
+        self.assertEqual(self.gate(), {"ready": True})
 
     def test_report_coverage_does_not_consume_newer_changes(self):
         self.edit_login()
         self.edit_login()
         result = self.run_script("render.py", None, SID, str(self.write_report()), "--covered-count", "1")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.gate()["decision"], "block")
+        self.assertEqual(self.gate(), {"ready": True})
 
 
 if __name__ == "__main__":
