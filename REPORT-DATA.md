@@ -12,14 +12,14 @@ A claim is only as strong as what happened in this session. "Lulus" means the co
 
 | Field | Meaning |
 |---|---|
-| `skip` | `true` only in Background (Codex) when the session is waiting on the user's answer. Otherwise `false`. |
+| `skip` | Always `false` for manual reports; retained for compatibility with older data. |
 | `title` | The work in a few words, named after what the user asked for ("MFA di auth module BE"). |
 | `summary` | Two or three sentences: what was asked, what exists now, what is left. |
-| `status` | `siap`: every requested task done, verification ran and passed, no unresolved review finding, no pending decision that blocks the PR. `hampir`: done, but something is missing before the PR (a test not run, review not run, an open finding, a pending decision). `sebagian`: part of the requested scope is not built yet. `blocked`: cannot continue without something external (a credential, a decision, a broken environment). |
+| `status` | `siap`: every requested task done, verification ran and passed, no unresolved review finding, no pending decision that blocks the PR. `hampir`: done, but something is missing before the PR (a required test not run, an open finding, a pending decision). `sebagian`: part of the requested scope is not built yet. `blocked`: cannot continue without something external (a credential, a decision, a broken environment). |
 | `status_note` | One sentence that justifies the status, read next to the status badge. |
 | `pills` | Two to five short key facts for the header ("TOTP + 10 recovery code", "Belum di-push"). |
 | `extra_stats` | Optional number cards beyond the four the renderer computes (pending decisions, files, commits, review findings). Example: `{"value": "42", "label": "test BE lulus"}`. |
-| `checklist` | Readiness items with `state` `ok` / `warn` / `bad` / `skip` and the evidence ("`go test ./...` dijalankan 23:41, 42 lulus"). Cover tests, build, lint/typecheck, code review, and anything the repo's own rules require. Commit and push state come from git in the renderer, so they stay out of the checklist. |
+| `checklist` | Readiness items with `state` `ok` / `warn` / `bad` / `skip` and the evidence ("`go test ./...` dijalankan 23:41, 42 lulus"). Cover relevant tests, build, lint/typecheck, and anything the repo's own rules require. Include code review only when it actually ran. Commit and push state come from git in the renderer, so they stay out of the checklist. |
 
 ## Butuh keputusanmu
 
@@ -42,9 +42,13 @@ In flowcharts, mark nodes with `:::baru` (added), `:::ubah` (changed) or `:::hap
 
 ## Per repo and files
 
+`commits` is an optional list of full 40-character commit hashes proven by the conversation to have been created in this session. Include previously reported session commits when updating. Do not infer session ownership from history or dates. Historical commits captured by the previous hook version remain readable. Without commit evidence, committed files may have no diff; explain that limitation in the repo notes.
+
 `repos` has one entry per repository the session touched. `path` is the repo root (absolute is safest). `summary` and `notes` describe the implementation in that repo. `files` lists every file changed in the session with a one-line `reason`. The renderer adds the change type, the line counts, the commits and the diff from git; a file git does not show as changed is dropped, and files outside any git repo are listed without a diff.
 
-## Code review
+## Code review (optional)
+
+Read the conversation to determine whether review ran or results were supplied. Reporting does not initiate a review. If absent, use `{"ran": false, "source": "", "findings": []}`: the renderer hides the section and review statistic. Its absence alone does not lower readiness.
 
 `code_review.ran` is `true` when any review ran in the session; `source` names it (`/code-review (xhigh)`, mattpocock `code-review`, Codex `/review`). Each finding gets a `status`:
 

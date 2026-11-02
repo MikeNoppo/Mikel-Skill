@@ -1,32 +1,21 @@
 ---
 name: session-report
-description: Tulis laporan sesi HTML (apa yang dibuat dan kenapa, status siap commit/PR, keputusan tertunda, code review, pengujian) ke /tmp/session-reports.
+description: Buat atau perbarui laporan sesi HTML secara manual, berisi hasil kerja, implementasi, status, diagram, dan bukti pengujian.
 disable-model-invocation: true
-allowed-tools: Read Edit(//tmp/session-reports/**) Bash(python3 /home/mikel/.agents/skills/session-report/scripts/render.py *)
 ---
 
 # Session report
 
-The developer reviews agent work through this report instead of scrolling the chat: the agent builds, the developer decides. Write for a reviewer who has ten seconds first and ten minutes later. The reading order is fixed: the **verdict** (can this ship?), then the **decisions** waiting on the developer, then what changed and **why**, then the **evidence**.
+Run only when the user invokes `/session-report` (Claude Code), `$session-report` (Codex), or explicitly asks to create/update this report. Work in the current conversation, using its model and effort. Complete the report in the foreground without starting a subagent, copied session, background worker, or queued chat message.
 
-You write data only: one `report.json` that matches `assets/report.schema.json`. `scripts/render.py` owns everything else: the HTML layout, the git facts (branches, commits, per-file diffs, push state), screenshot embedding, `index.html` and the desktop notification. After background rendering, the worker returns a ready message to the original chat. When receiving `[session-report:completed]`, reply with the supplied report link as one line; the report is already complete. That split keeps every report consistent, so the HTML always comes from the renderer.
+Write in Indonesian, address the developer as "kamu", and keep familiar technical terms in English. Lead with readiness and pending decisions, followed by what changed, why, implementation, diagrams and evidence. The model writes JSON; the renderer owns the fixed HTML design and git facts.
 
-## Modes
+## Create or update
 
-| Mode | You are here when | Session id |
-|---|---|---|
-| Manual | The user typed `/session-report` (Claude Code) or `$session-report` (Codex) | Claude Code: `${CLAUDE_SESSION_ID}`. Codex: `$CODEX_THREAD_ID` from the shell, or `auto` to let the renderer read it |
-| Background (CLI worker) | You run in a copied Claude/Codex session with an output schema and read-only tools | Given in the prompt |
-
-In background mode the developer is not watching: finish without asking anything.
-
-In Background (CLI worker), when the session's last assistant message asks the user something they must answer before the task can continue, return `"skip": true` with the other fields minimal but valid. A closing offer such as "mau saya commit?" or "mau saya buka PR?" means the task is finished, so report it normally.
-
-## Steps
-
-1. **Gather evidence** from the whole session, not only the last turn. Done when you can account for every task the user asked for (finished, partial or not started), every file changed and why, every command that verified something together with its actual result, every code review finding and what happened to it, and every assumption made without asking. The conversation is the primary source; read code or run read-only git commands only to fill gaps. Commits are attributed from PreToolUse/PostToolUse snapshots; edits from before hooks were installed may need to be listed explicitly in `repos[].files`. File diffs show session commit patches followed by pending edits, so later upstream changes are excluded.
-2. **Write the data.** Read [REPORT-DATA.md](REPORT-DATA.md) for every field, the status rules and the code review mapping, then fill all fields. Write in Indonesian, address the developer as "kamu", keep technical terms in English (endpoint, middleware, token), and prefer plain words over jargon.
-   - Manual: write a new file `/tmp/session-reports/<session-id>/report-<YYYYmmdd-HHMMSS>.json`. Use a fresh name every time; the renderer takes the path you give it.
-   - Background (CLI worker): the JSON is your final answer. Stop after this step.
-3. **Render**: `python3 /home/mikel/.agents/skills/session-report/scripts/render.py <session-id> <json-path> --harness <claude|codex>`. Add `--open` in Manual mode so the report opens right away. Background workers render outside the model process using the change count captured when the worker started; newer edits remain pending. Exit code 2 lists JSON/schema errors: fix them in a new file and render again. Exit code 1 reports a path, session id, or environment error: correct that cause before retrying. Automatic reports have a five-minute cooldown; manual reports bypass it. Done when it prints the HTML path.
-4. **Reply** with exactly one line: `Laporan sesi: [Buka laporan](<html-path>)`.
+1. Run `python3 /home/mikel/.agents/skills/session-report/scripts/prepare.py auto --harness <claude|codex>`. It returns `session_id`, `data_path`, `previous_data`, and `html`. If the harness environment lacks its session ID, obtain the actual ID from session context and pass it explicitly. Never select another session's report just because it is newest or shares a repository.
+2. If `previous_data` exists, read it before writing. If only `html` exists, read that report instead. Update the same session's cumulative account: preserve relevant earlier work and old flow diagrams, resolve stale statuses, and add subsequent changes and verification. An existing report in a different session stays separate unless the user explicitly asks to update it; in that case use its session ID.
+3. Gather evidence from the entire conversation, filling gaps with read-only code/git inspection. Account for requested work, implementation, current completion/blockers, tests actually run, and known limitations. List session files explicitly in `repos[].files`. Include `repos[].commits` only for exact full commit hashes proven to have been created during this session; do not infer ownership from branch history, author or dates. Explain missing historical evidence rather than inventing it.
+4. Read [REPORT-DATA.md](REPORT-DATA.md), then write valid JSON to the returned `data_path` (`report.json`, reused on subsequent calls). Use the schema in `assets/report.schema.json`. Set `skip` to `false`.
+   Code review is optional: read the session to determine whether a review was invoked or its results were provided. If so, summarize findings and their latest dispositions. Otherwise set `code_review` to `{"ran": false, "source": "", "findings": []}`; omit review checklist items and do not lower readiness merely because no review ran. Creating a report does not request a new review or additional tests.
+5. Run `python3 /home/mikel/.agents/skills/session-report/scripts/render.py <session_id> <data_path> --harness <claude|codex> --open`. The renderer reuses the recorded HTML path, refreshes git state and updates `latest.html` and `index.html`. Exit 2 means invalid report data: correct it and retry. Exit 1 means a path, identity or environment problem: fix that cause. Finish when it prints the HTML path.
+6. Reply: `Laporan sesi: [Buka laporan](<html-path>)`.
