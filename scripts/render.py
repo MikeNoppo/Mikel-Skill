@@ -1,6 +1,8 @@
 import argparse
 import base64
 import html
+import hashlib
+import uuid
 import json
 import mimetypes
 import os
@@ -41,7 +43,7 @@ FILE_STATUS = {"A": ("baru", "ok"), "M": ("diubah", "info"), "D": ("dihapus", "b
 DAYS = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
 MONTHS = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"]
 TYPES = {"object": dict, "array": list, "string": str, "boolean": bool, "null": type(None)}
-EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+EMPTY_TREE = common.EMPTY_TREE
 DIFF_LINES = 400
 SHOT_BYTES = 6 * 1024 * 1024
 GLYPH = "\U000F0219"
@@ -51,6 +53,10 @@ DIAGRAM_CLASS = re.compile(r":::(baru|ubah|hapus)\b")
 
 
 class ReportError(Exception):
+    pass
+
+
+class SchemaError(ReportError):
     pass
 
 
@@ -104,12 +110,14 @@ def validate(value, schema, defs, path="$"):
 def load_report(path):
     try:
         report = json.loads(Path(path).read_text())
-    except (OSError, json.JSONDecodeError) as error:
+    except OSError as error:
         raise ReportError(f"cannot read {path}: {error}")
+    except json.JSONDecodeError as error:
+        raise SchemaError(f"invalid JSON in {path}: {error}")
     schema = json.loads(common.SCHEMA.read_text())
     errors = validate(report, schema, schema.get("$defs", {}))
     if errors:
-        raise ReportError("\n".join(errors[:40]))
+        raise SchemaError("\n".join(errors[:40]))
     return report
 
 
@@ -165,57 +173,52 @@ def numstat(repo, *args):
     return stats
 
 
-def file_diff(repo, base, rel, untracked):
-    if untracked:
-        text = common.git(repo, "diff", "--no-index", "--", "/dev/null", rel, ok=(0, 1))
-    else:
-        text = common.git(repo, "diff", "--no-renames", base, "--", rel)
-    lines = (text or "").splitlines()
-    return lines[:DIFF_LINES], len(lines) > DIFF_LINES
-
-
-def repo_facts(repo, base, session_paths):
+def repo_facts(repo, state, session_paths):
+    state = state if isinstance(state, dict) else {}
     head = common.git(repo, "rev-parse", "--verify", "-q", "HEAD")
-    base = base or head or EMPTY_TREE
     upstream = common.git(repo, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
     ahead = behind = None
     if upstream:
         counts = (common.git(repo, "rev-list", "--left-right", "--count", "@{u}...HEAD") or "").split()
         if len(counts) == 2:
             behind, ahead = int(counts[0]), int(counts[1])
-    commits, committed = [], set()
-    if head and base != head:
-        span = "HEAD" if base == EMPTY_TREE else f"{base}..HEAD"
-        commits = [line.split("\t", 1) for line in lines_of(common.git(repo, "log", "--reverse", "--format=%h%x09%s", span)) if "\t" in line]
-        committed = set(records(repo, "diff", "--name-only", "--no-renames", "-z", base, "HEAD"))
-    fresh = set(records(repo, "ls-files", "-z", "--others", "--exclude-standard"))
-    dirty = fresh | (set(records(repo, "diff", "--name-only", "--no-renames", "-z", "HEAD")) if head else set(name_status(repo, EMPTY_TREE)))
-    statuses = name_status(repo, base)
-    stats = numstat(repo, base)
-    files = []
-    for rel in sorted(committed | set(session_paths)):
-        untracked = rel in fresh
-        if untracked:
-            added, deleted = next(iter(numstat(repo, "--no-index", "--", "/dev/null", rel).values()), ("0", "0"))
-            status = "A"
-        elif rel in statuses:
-            added, deleted = stats.get(rel, ("0", "0"))
-            status = statuses[rel]
-        else:
+    commits, patches = [], {}
+    for sha in state.get("commits", []):
+        if not head or common.git(repo, "merge-base", "--is-ancestor", sha, head) is None:
             continue
-        diff, truncated = file_diff(repo, base, rel, untracked)
-        files.append({"path": rel, "status": status, "added": added, "deleted": deleted, "diff": diff, "truncated": truncated, "dirty": rel in dirty})
-    return {
-        "root": repo,
-        "name": Path(repo).name,
-        "git": True,
-        "branch": common.git(repo, "rev-parse", "--abbrev-ref", "HEAD") or "?",
-        "upstream": upstream,
-        "ahead": ahead,
-        "behind": behind,
-        "commits": commits,
-        "files": files,
-    }
+        row = common.git(repo, "show", "-s", "--format=%h%x09%s", sha)
+        if not row or "\t" not in row:
+            continue
+        commits.append(row.split("\t", 1))
+        parent = common.git(repo, "rev-parse", "--verify", "-q", f"{sha}^1") or EMPTY_TREE
+        names = records(repo, "diff", "--name-only", "--no-renames", "-z", parent, sha)
+        for rel in names:
+            patches.setdefault(rel, []).append((parent, sha))
+    fresh = set(records(repo, "ls-files", "-z", "--others", "--exclude-standard"))
+    current = head or EMPTY_TREE
+    dirty = fresh | set(records(repo, "diff", "--name-only", "--no-renames", "-z", current))
+    files = []
+    for rel in sorted(set(patches) | set(session_paths)):
+        chunks, added, deleted, status = [], 0, 0, "M"
+        spans = patches.get(rel, []) + ([(current, None)] if rel in dirty else [])
+        for base, end in spans:
+            untracked = end is None and rel in fresh
+            args = ("--no-index", "--", "/dev/null", rel) if untracked else (base, *([end] if end else []), "--", rel)
+            delta = numstat(repo, *args)
+            a, d = delta.get(rel, next(iter(delta.values()), ("0", "0")))
+            added += number(a)
+            deleted += number(d)
+            diff = common.git(repo, "diff", "--no-renames", *args, ok=(0, 1)) or ""
+            chunks.extend(diff.splitlines())
+            if untracked or "new file mode" in diff:
+                status = "A"
+            elif "deleted file mode" in diff:
+                status = "D"
+        if chunks:
+            files.append({"path": rel, "status": status, "added": str(added), "deleted": str(deleted), "diff": chunks[:DIFF_LINES], "truncated": len(chunks) > DIFF_LINES, "dirty": rel in dirty})
+    return {"root": repo, "name": Path(repo).name, "git": True,
+            "branch": common.git(repo, "symbolic-ref", "--short", "-q", "HEAD") or "detached HEAD",
+            "upstream": upstream, "ahead": ahead, "behind": behind, "commits": commits, "files": files}
 
 
 def collect(sid, report, meta, cwd):
@@ -262,7 +265,7 @@ def collect(sid, report, meta, cwd):
     for root in order:
         if not Path(root).is_dir():
             continue
-        facts = repo_facts(root, meta.get("repos", {}).get(root, {}).get("base"), paths[root])
+        facts = repo_facts(root, meta.get("repos", {}).get(root, {}), paths[root])
         for entry in facts["files"]:
             entry["reason"] = reasons[root].get(entry["path"], "")
         facts["items"] = notes.get(root, [])
@@ -644,7 +647,8 @@ def output_path(sid, meta, groups, cwd):
         return Path(known)
     name = next((group["name"] for group in groups if group["git"]), Path(cwd).name)
     slug = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-.") or "sesi"
-    return common.root() / f"{slug}-{sid[:8]}.html"
+    suffix = hashlib.sha256(sid.encode()).hexdigest()[:12]
+    return common.root() / f"{slug}-{suffix}.html"
 
 
 def write_index():
@@ -697,24 +701,22 @@ def notify(path, summary, body):
         detach(["notify-send", "-a", "Session Report", summary, body])
 
 
-def resolve_session(value, cwd):
-    if value != "auto":
-        if not common.valid_sid(value):
-            raise ReportError(f"invalid session id: {value!r}")
-        return value
-    root = common.repo_root(cwd) or os.path.normpath(cwd)
-    journals = sorted(common.state_dir().glob("*.jsonl"), key=lambda path: path.stat().st_mtime, reverse=True)
-    for journal in journals:
-        sid = journal.stem
-        if any(common.is_under(event.get("path", ""), root) for event in common.events(sid) if event.get("path")):
-            return sid
-    slug = re.sub(r"[^A-Za-z0-9_-]+", "-", Path(root).name).strip("-") or "sesi"
-    return f"manual-{slug}"
+def resolve_session(value, cwd, harness="claude"):
+    if value == "auto":
+        variable = "CODEX_THREAD_ID" if harness == "codex" else "CLAUDE_CODE_SESSION_ID"
+        value = os.environ.get(variable)
+        if not value:
+            identity = f"{harness}:{os.path.realpath(cwd)}:{uuid.uuid4()}"
+            value = f"manual-{hashlib.sha256(identity.encode()).hexdigest()[:24]}"
+    if not common.valid_sid(value):
+        raise ReportError(f"invalid session id: {value!r}; use the original session id or auto")
+    return value
 
 
-def render(session, report_path, harness="claude", notify_user=True, cwd=None, open_now=False):
+def render(session, report_path, harness="claude", notify_user=True, cwd=None, open_now=False, covered_count=None):
     cwd = cwd or os.getcwd()
-    sid = resolve_session(session, cwd)
+    sid = resolve_session(session, cwd, harness)
+    coverage = common.change_count(sid) if covered_count is None else covered_count
     report = load_report(report_path)
     if report["skip"]:
         return None
@@ -727,6 +729,8 @@ def render(session, report_path, harness="claude", notify_user=True, cwd=None, o
     common.update_meta(
         sid,
         html=str(path),
+        spawned_count=coverage,
+        reported_count=coverage,
         title=report["title"],
         status=report["status"],
         decisions=len(report["decisions"]),
@@ -747,17 +751,21 @@ def render(session, report_path, harness="claude", notify_user=True, cwd=None, o
 
 def main(argv):
     parser = argparse.ArgumentParser(description="Render a session-report report.json into HTML.")
-    parser.add_argument("session", help="session id, or 'auto' to pick the newest tracked session for this directory")
+    parser.add_argument("session", help="session id, or auto to use the current harness session id")
     parser.add_argument("report", help="path to report.json")
     parser.add_argument("--harness", choices=sorted(HARNESS), default="claude")
+    parser.add_argument("--covered-count", type=int, help="change count captured when the report fork started")
     parser.add_argument("--no-notify", action="store_true")
     parser.add_argument("--open", action="store_true", help="open the report now instead of sending a notification")
     args = parser.parse_args(argv[1:])
     try:
-        path = render(args.session, args.report, args.harness, not args.no_notify, open_now=args.open)
-    except ReportError as error:
+        path = render(args.session, args.report, args.harness, not args.no_notify, open_now=args.open, covered_count=args.covered_count)
+    except SchemaError as error:
         print(f"report.json is not valid, fix these and render again:\n{error}", file=sys.stderr)
         return 2
+    except (ReportError, OSError, ValueError) as error:
+        print(f"cannot render report: {error}", file=sys.stderr)
+        return 1
     print("skip" if path is None else path)
     return 0
 
