@@ -22,6 +22,10 @@ python3 ~/.agents/skills/session-report/scripts/install.py
 
 Script hanya menghapus hook skill ini dan permission khusus yang dulu dipasangnya, mempertahankan konfigurasi lain. Backup pertama migrasi disimpan sebagai `.bak-session-report-manual`. Tidak memasang hook baru. Mulai ulang sesi Claude/Codex yang sudah terbuka agar konfigurasi lama tidak lagi tersimpan dalam sesi. Entrypoint `track.py` dan `gate.py` lama menjadi no-op untuk kompatibilitas sesi yang belum dimuat ulang.
 
+## Tampilan
+
+Tema putih tetap, tipografi charcoal, navigasi bagian di kiri pada desktop dan horizontal pada layar kecil. Isi memakai pemisah tipis, warna status secukupnya, diagram offline, diff yang dapat dibuka, dan layout cetak. Tema OS gelap tidak mengubah warna laporan.
+
 ## Bukti dan privasi
 
 Percakapan menjadi sumber cakupan kerja. File sesi dicantumkan eksplisit; hash commit penuh hanya dimasukkan bila terbukti dibuat dalam sesi. Renderer membaca kondisi git saat dipanggil, menampilkan patch commit yang dicantumkan dan perubahan file yang belum di-commit. Commit upstream tidak otomatis dianggap pekerjaan sesi. Metadata commit versi lama tetap dapat dibaca untuk laporan sesi yang sudah ada. Perubahan bersamaan pada file yang sama dapat membuat atribusi ambigu; jelaskan batas bukti atau gunakan worktree terpisah.
