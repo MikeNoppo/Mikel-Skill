@@ -20,7 +20,7 @@ Penanganan 15 temuan review awal. Setiap perbaikan memiliki pengujian perilaku, 
 | 14 | Matcher tidak di-upgrade, backup tertimpa | Installer memperbarui matcher dan handler miliknya, mempertahankan hook lain dan backup pertama. Test migrasi matcher, dua kali install, backup awal tetap utuh. |
 | 15 | Meta ditulis ulang dan git dipanggil pada setiap edit | Cache directory→repo, edit Pre/Post yang sudah dikenal tidak menulis meta lagi. Semua penulisan atomik menggunakan helper bersama. Test mtime meta tetap setelah tiga pasangan edit hook. |
 
-Review tambahan menemukan shell overwrite yang status git-nya tetap sama, file baru lewat shell yang tidak muncul di daftar file, dan `git am` yang terlewat. Snapshot sekarang membandingkan hash isi file dan mencatat path yang berubah; `am:` termasuk commit lokal. Seluruhnya mendapat test regresi.
+Review tambahan menemukan shell overwrite yang status git-nya tetap sama, file baru lewat shell yang tidak muncul di daftar file, dan `git am` yang terlewat. Snapshot sekarang membandingkan hash isi file dan mencatat path yang berubah; `am:` termasuk commit lokal. Seluruhnya mendapat test regresi. Pass terakhir juga menambahkan pencatatan executable bit agar `chmod +x` pada file yang sudah dimodifikasi tetap memicu laporan.
 
 Jumlah perubahan saat fork dimulai diteruskan ke renderer agar edit baru tidak dianggap sudah tercakup. Cooldown lima menit hanya menunda laporan otomatis; perubahan tetap pending, dan laporan manual dapat dijalankan kapan saja.
 
