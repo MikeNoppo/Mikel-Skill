@@ -457,6 +457,47 @@ class SessionReportTest(unittest.TestCase):
         self.assertEqual([c[1] for c in self.facts()["commits"]], ["feat(own): local change"])
         self.assertNotIn("foreign.txt", [f["path"] for f in self.facts()["files"]])
 
+    def test_shell_edit_in_known_other_repo_is_recorded(self):
+        first = self.repo
+        second = self.base / "other-repo"
+        second.mkdir()
+        self.repo = second
+        self.git("init", "-q", "-b", "main")
+        self.git("config", "user.name", "test")
+        self.git("config", "user.email", "test@example.com")
+        target = second / "existing.txt"
+        target.write_text("before\n")
+        self.git("add", "existing.txt")
+        self.git("commit", "-qm", "feat(base): add file")
+        self.track("Bash", {"command": "git status"}, event="PreToolUse")
+        self.track("Bash", {"command": "git status"})
+        self.repo = first
+        self.track("Bash", {"command": "python3 writer.py"}, event="PreToolUse")
+        target.write_text("after\n")
+        self.track("Bash", {"command": "python3 writer.py"})
+        edits = [e for e in self.journal() if e.get("kind") == "edit"]
+        self.assertIn(str(target), [e["path"] for e in edits])
+        self.assertEqual(self.gate(), {"ready": True})
+
+    def test_shell_literal_discovers_other_repo_before_first_write(self):
+        first = self.repo
+        other = self.base / "new-other-repo"
+        other.mkdir()
+        self.repo = other
+        self.git("init", "-q", "-b", "main")
+        self.git("config", "user.name", "test")
+        self.git("config", "user.email", "test@example.com")
+        target = other / "changed.txt"
+        target.write_text("before\n")
+        self.git("add", "changed.txt")
+        self.git("commit", "-qm", "feat(base): add file")
+        self.repo = first
+        command = "python3 - <<'PY'\nfrom pathlib import Path\np=Path('../new-other-repo')/'changed.txt'\np.write_text('after')\nPY"
+        self.track("Bash", {"command": command}, event="PreToolUse")
+        target.write_text("after\n")
+        self.track("Bash", {"command": command})
+        self.assertIn(str(target), [e.get("path") for e in self.journal()])
+
     def test_shell_mode_change_refreshes_already_modified_file(self):
         self.edit_login()
         self.render(self.write_report())
