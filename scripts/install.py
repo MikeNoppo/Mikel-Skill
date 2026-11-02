@@ -37,13 +37,16 @@ def ensure_hooks(config, wanted):
     hooks = config.setdefault("hooks", {})
     for event, (matcher, command) in wanted.items():
         groups = hooks.setdefault(event, [])
+        handler = {"type": "command", "command": command, "timeout": 1900 if command == CLAUDE_GATE else 10}
+        if command == CLAUDE_GATE:
+            handler["asyncRewake"] = True
         matches = [(group, hook) for group in groups for hook in group.get("hooks", []) if hook.get("command") == command]
-        if len(matches) == 1 and matches[0][0].get("matcher") == matcher and matches[0][1].get("timeout") == 10 and matches[0][1].get("type") == "command":
+        if len(matches) == 1 and matches[0][0].get("matcher") == matcher and matches[0][1] == handler:
             continue
         for group, hook in matches:
             group["hooks"].remove(hook)
         groups[:] = [group for group in groups if group.get("hooks")]
-        group = {"hooks": [{"type": "command", "command": command, "timeout": 10}]}
+        group = {"hooks": [handler]}
         if matcher:
             group = {"matcher": matcher, **group}
         groups.append(group)

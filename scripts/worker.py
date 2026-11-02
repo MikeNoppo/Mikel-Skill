@@ -7,6 +7,7 @@ import time
 from datetime import datetime
 
 import common
+import delivery
 import render
 
 PROMPT = "Read {skill} and follow its Background mode (CLI worker). Session id: {sid}"
@@ -90,6 +91,8 @@ def main(sid, cwd, covered_count=None, harness="codex", model=""):
         print("skip: the session is waiting on the user", flush=True)
         release(sid)
         return 0
+    if harness == "codex":
+        delivery.codex(sid, path, codex_bin())
     finish(sid)
     print(f"{datetime.now():%H:%M:%S} wrote {path}", flush=True)
     return 0

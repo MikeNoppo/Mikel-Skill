@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 import common
+import delivery
 
 
 def respond(payload=None):
@@ -74,6 +75,8 @@ def spawn_worker(sid, cwd, meta, changes, harness="codex", model=""):
         worker_pid=process.pid,
         spawned_at=time.time(),
     )
+    log.close()
+    return process
 
 
 def main():
@@ -98,7 +101,14 @@ def main():
         return respond()
     if args.check:
         return respond({"ready": True})
-    spawn_worker(sid, data.get("cwd") or os.getcwd(), meta, changes, args.harness, original_model(data) if args.harness == "claude" else "")
+    process = spawn_worker(sid, data.get("cwd") or os.getcwd(), meta, changes, args.harness, original_model(data) if args.harness == "claude" else "")
+    if args.harness == "claude":
+        code = process.wait()
+        completed = common.load_meta(sid)
+        if code == 0 and completed.get("reported_count", 0) >= changes and completed.get("html") and os.environ.get("SESSION_REPORT_CHAT", "1") != "0":
+            print(delivery.reminder(completed["html"]), file=sys.stderr)
+            common.update_meta(sid, chat_delivered_report=completed.get("report"))
+            return 2
     return respond()
 
 
