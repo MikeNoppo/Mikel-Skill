@@ -2,7 +2,6 @@ import argparse
 import base64
 import html
 import hashlib
-import uuid
 import json
 import mimetypes
 import os
@@ -46,7 +45,6 @@ TYPES = {"object": dict, "array": list, "string": str, "boolean": bool, "null": 
 EMPTY_TREE = common.EMPTY_TREE
 DIFF_LINES = 400
 SHOT_BYTES = 6 * 1024 * 1024
-GLYPH = "\U000F0219"
 INLINE_CODE = re.compile(r"`([^`\n]+)`")
 BOLD = re.compile(r"\*\*(.+?)\*\*")
 DIAGRAM_CLASS = re.compile(r":::(baru|ubah|hapus)\b")
@@ -91,6 +89,8 @@ def validate(value, schema, defs, path="$"):
     if expected and not type_matches(value, expected):
         return [f"{path}: expected {expected}, got {type_name(value)}"]
     errors = []
+    if isinstance(value, str) and "pattern" in schema and not re.search(schema["pattern"], value):
+        errors.append(f"{path}: does not match {schema['pattern']}")
     if "enum" in schema and value not in schema["enum"]:
         errors.append(f"{path}: {value!r} is not one of {schema['enum']}")
     if isinstance(value, dict):
@@ -248,24 +248,14 @@ def collect(sid, report, meta, cwd):
             if rel:
                 reasons[root][rel] = entry["reason"]
                 paths[root].add(rel)
-    for root in meta.get("repos", {}):
-        add_repo(root)
-    for event in common.events(sid):
-        if event.get("kind") != "edit" or not event.get("path"):
-            continue
-        root = event.get("repo")
-        if root:
-            add_repo(root)
-            rel = relative(event["path"], root)
-            if rel:
-                paths[root].add(rel)
-        else:
-            outside.setdefault(os.path.normpath(event["path"]), "")
     groups = []
     for root in order:
         if not Path(root).is_dir():
             continue
-        facts = repo_facts(root, meta.get("repos", {}).get(root, {}), paths[root])
+        state = dict(meta.get("repos", {}).get(root, {}))
+        explicit = [sha for item in notes.get(root, []) for sha in item.get("commits", [])]
+        state["commits"] = list(dict.fromkeys(state.get("commits", []) + explicit))
+        facts = repo_facts(root, state, paths[root])
         for entry in facts["files"]:
             entry["reason"] = reasons[root].get(entry["path"], "")
         facts["items"] = notes.get(root, [])
@@ -350,8 +340,9 @@ def summary_section(report, groups):
         (str(len(report["decisions"])), "keputusan menunggu kamu"),
         (str(count), f"file berubah · +{added} / −{deleted}"),
         (str(sum(len(group["commits"]) for group in groups)), "commit di sesi ini"),
-        (f"{fixed}/{len(review['findings'])}", "temuan review diperbaiki") if review["ran"] else ("–", "belum ada code review"),
     ] + [(stat["value"], stat["label"]) for stat in report["extra_stats"]]
+    if review["ran"]:
+        stats.append((f"{fixed}/{len(review['findings'])}", "temuan review diperbaiki"))
     cards = "".join(f'<div class="stat"><b>{e(value)}</b><span>{rich(label)}</span></div>' for value, label in stats)
     body = f'<div class="grid g4">{cards}</div>'
     if groups:
@@ -498,7 +489,7 @@ def files_section(groups):
 def review_section(report):
     review = report["code_review"]
     if not review["ran"]:
-        return section("review", "Code review", '<div class="callout warn">Belum ada code review di sesi ini. Jalankan <code>/code-review</code> sebelum membuka PR.</div>')
+        return None
     counts = {}
     for finding in review["findings"]:
         counts[finding["status"]] = counts.get(finding["status"], 0) + 1
@@ -694,31 +685,20 @@ def detach(command):
         pass
 
 
-def notify(path, summary, body):
-    if os.environ.get("SESSION_REPORT_NOTIFY", "1") == "0":
-        return
-    if shutil.which("omarchy-notification-send"):
-        detach(["omarchy-notification-send", "--app-name", "Session Report", "-g", GLYPH, "-u", "normal", summary, body, "--exec", *browser(path)])
-    elif shutil.which("notify-send"):
-        detach(["notify-send", "-a", "Session Report", summary, body])
-
-
 def resolve_session(value, cwd, harness="claude"):
     if value == "auto":
         variable = "CODEX_THREAD_ID" if harness == "codex" else "CLAUDE_CODE_SESSION_ID"
         value = os.environ.get(variable)
         if not value:
-            identity = f"{harness}:{os.path.realpath(cwd)}:{uuid.uuid4()}"
-            value = f"manual-{hashlib.sha256(identity.encode()).hexdigest()[:24]}"
+            raise ReportError("session id unavailable; pass the original session id explicitly")
     if not common.valid_sid(value):
         raise ReportError(f"invalid session id: {value!r}; use the original session id or auto")
     return value
 
 
-def render(session, report_path, harness="claude", notify_user=True, cwd=None, open_now=False, covered_count=None):
+def render(session, report_path, harness="claude", cwd=None, open_now=False):
     cwd = cwd or os.getcwd()
     sid = resolve_session(session, cwd, harness)
-    coverage = common.change_count(sid) if covered_count is None else covered_count
     report = load_report(report_path)
     if report["skip"]:
         return None
@@ -731,8 +711,6 @@ def render(session, report_path, harness="claude", notify_user=True, cwd=None, o
     common.update_meta(
         sid,
         html=str(path),
-        spawned_count=coverage,
-        reported_count=coverage,
         title=report["title"],
         status=report["status"],
         decisions=len(report["decisions"]),
@@ -745,9 +723,6 @@ def render(session, report_path, harness="claude", notify_user=True, cwd=None, o
     write_index()
     if open_now:
         detach(browser(path))
-    elif notify_user:
-        names = ", ".join(group["name"] for group in groups if group["git"]) or "Laporan sesi"
-        notify(path, f"{names}: {STATUS[report['status']][0]}", report["title"])
     return path
 
 
@@ -756,12 +731,10 @@ def main(argv):
     parser.add_argument("session", help="session id, or auto to use the current harness session id")
     parser.add_argument("report", help="path to report.json")
     parser.add_argument("--harness", choices=sorted(HARNESS), default="claude")
-    parser.add_argument("--covered-count", type=int, help="change count captured when the report fork started")
-    parser.add_argument("--no-notify", action="store_true")
-    parser.add_argument("--open", action="store_true", help="open the report now instead of sending a notification")
+    parser.add_argument("--open", action="store_true", help="open the report now")
     args = parser.parse_args(argv[1:])
     try:
-        path = render(args.session, args.report, args.harness, not args.no_notify, open_now=args.open, covered_count=args.covered_count)
+        path = render(args.session, args.report, args.harness, open_now=args.open)
     except SchemaError as error:
         print(f"report.json is not valid, fix these and render again:\n{error}", file=sys.stderr)
         return 2

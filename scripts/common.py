@@ -4,9 +4,7 @@ import os
 import re
 import stat
 import subprocess
-import sys
 import tempfile
-import time
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -14,10 +12,7 @@ SKILL_DIR = Path(__file__).resolve().parent.parent
 SCHEMA = SKILL_DIR / "assets" / "report.schema.json"
 TEMPLATE = SKILL_DIR / "assets" / "template.html"
 SID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}")
-CHANGE_KINDS = {"edit", "commit", "git", "review"}
 EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
-SESSION_REFLOG = ("commit:", "commit (initial):", "commit (amend):", "cherry-pick:", "revert:", "am:")
-REFLOG_TIME = re.compile(r"@\{(\d+)\}")
 
 
 def root():
@@ -62,50 +57,8 @@ def valid_sid(value):
     return isinstance(value, str) and SID_PATTERN.fullmatch(value) is not None
 
 
-def is_child():
-    return os.environ.get("SESSION_REPORT_CHILD") == "1"
-
-
-def read_hook_input():
-    try:
-        data = json.load(sys.stdin)
-    except (json.JSONDecodeError, OSError):
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
-def events_path(sid):
-    return state_dir() / f"{sid}.jsonl"
-
-
 def meta_path(sid):
     return state_dir() / f"{sid}.json"
-
-
-def events(sid):
-    path = events_path(sid)
-    if not path.exists():
-        return []
-    items = []
-    for line in path.read_text(errors="replace").splitlines():
-        try:
-            item = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(item, dict):
-            items.append(item)
-    return items
-
-
-def append_event(sid, event):
-    event = {"t": time.time(), **event}
-    descriptor = os.open(events_path(sid), os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
-    with os.fdopen(descriptor, "a") as handle:
-        handle.write(json.dumps(event, ensure_ascii=False) + "\n")
-
-
-def change_count(sid):
-    return sum(1 for event in events(sid) if event.get("kind") in CHANGE_KINDS)
 
 
 def load_meta(sid):
@@ -180,26 +133,6 @@ def repo_root(path):
     if directory is None:
         return None
     return git(directory, "rev-parse", "--show-toplevel") or None
-
-
-def reflog(repo):
-    entries = []
-    for line in (git(repo, "reflog", "--date=unix", "--format=%H%x09%gd%x09%gs") or "").splitlines():
-        sha, selector, subject = (line.split("\t", 2) + ["", ""])[:3]
-        moment = REFLOG_TIME.search(selector)
-        if moment:
-            entries.append((sha, int(moment.group(1)), subject))
-    return entries
-
-
-def repo_state(repo, entries):
-    return {"reflog": len(entries), "upstream": git(repo, "rev-parse", "--verify", "-q", "@{u}")}
-
-
-def patch_id(repo, sha):
-    patch = git(repo, "show", "--format=", "--binary", sha)
-    result = git(repo, "patch-id", "--stable", input_text=patch) if patch else None
-    return result.split()[0] if result else None
 
 
 def is_under(path, parent):

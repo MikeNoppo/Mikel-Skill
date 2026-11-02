@@ -6,93 +6,53 @@ from pathlib import Path
 import common
 
 SCRIPTS = Path(__file__).resolve().parent
-PYTHON = "/usr/bin/python3"
-TRACK = f"{PYTHON} {shlex.quote(str(SCRIPTS / 'track.py'))}"
-CLAUDE_GATE = f"{PYTHON} {shlex.quote(str(SCRIPTS / 'gate.py'))} --harness claude"
-CODEX_GATE = f"{PYTHON} {shlex.quote(str(SCRIPTS / 'gate.py'))} --harness codex"
-CLAUDE_ALLOW = [
-    "Edit(//tmp/session-reports/**)",
-    f"Bash(python3 {SCRIPTS / 'render.py'} *)",
-]
-CLAUDE_HOOKS = {
-    "PreToolUse": ("Edit|Write|MultiEdit|NotebookEdit|Bash", TRACK),
-    "PostToolUse": ("Edit|Write|MultiEdit|NotebookEdit|Bash|ReportFindings|Agent", TRACK),
-    "Stop": (None, CLAUDE_GATE),
-}
-CODEX_HOOKS = {
-    "PreToolUse": ("apply_patch|Edit|Write|Bash|exec_command|shell|local_shell", TRACK),
-    "PostToolUse": ("apply_patch|Edit|Write|Bash|exec_command|shell|local_shell", TRACK),
-    "Stop": (None, CODEX_GATE),
-}
+LEGACY_SCRIPTS = {str(SCRIPTS / name) for name in ("track.py", "gate.py", "worker.py", "delivery.py")}
 
 
-def load(path, default):
+def owned(command):
+    try:
+        return any(part in LEGACY_SCRIPTS for part in shlex.split(command))
+    except ValueError:
+        return False
+
+
+def migrate(path):
     if not path.exists():
-        return default
-    return json.loads(path.read_text())
-
-
-def ensure_hooks(config, wanted):
-    changed = []
-    hooks = config.setdefault("hooks", {})
-    for event, (matcher, command) in wanted.items():
-        groups = hooks.setdefault(event, [])
-        handler = {"type": "command", "command": command, "timeout": 1900 if command == CLAUDE_GATE else 10}
-        if command == CLAUDE_GATE:
-            handler["asyncRewake"] = True
-        matches = [(group, hook) for group in groups for hook in group.get("hooks", []) if hook.get("command") == command]
-        if len(matches) == 1 and matches[0][0].get("matcher") == matcher and matches[0][1] == handler:
-            continue
-        for group, hook in matches:
-            group["hooks"].remove(hook)
-        groups[:] = [group for group in groups if group.get("hooks")]
-        group = {"hooks": [handler]}
-        if matcher:
-            group = {"matcher": matcher, **group}
-        groups.append(group)
-        changed.append(event)
+        return False
+    config = json.loads(path.read_text())
+    changed = False
+    for event, groups in list(config.get("hooks", {}).items()):
+        kept = []
+        for group in groups:
+            handlers = group.get("hooks", [])
+            remaining = [hook for hook in handlers if not owned(hook.get("command", ""))]
+            if remaining != handlers:
+                changed = True
+            if remaining:
+                kept.append({**group, "hooks": remaining})
+        if kept:
+            config["hooks"][event] = kept
+        else:
+            config["hooks"].pop(event, None)
+    allow = config.get("permissions", {}).get("allow", [])
+    legacy = {"Edit(//tmp/session-reports/**)", f"Bash(python3 {SCRIPTS / 'render.py'} *)"}
+    remaining = [rule for rule in allow if rule not in legacy]
+    if remaining != allow:
+        config["permissions"]["allow"] = remaining
+        changed = True
+    if changed:
+        backup = path.with_name(path.name + ".bak-session-report-manual")
+        if not backup.exists():
+            with backup.open("xb") as handle:
+                handle.write(path.read_bytes())
+            backup.chmod(0o600)
+        common.write_atomic(path, json.dumps(config, indent=2, ensure_ascii=False) + "\n")
     return changed
 
 
-def save(path, config):
-    backup = path.with_name(f"{path.name}.bak-session-report")
-    if path.exists() and not backup.exists():
-        with backup.open("xb") as handle:
-            handle.write(path.read_bytes())
-        backup.chmod(0o600)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    common.write_atomic(path, json.dumps(config, indent=2, ensure_ascii=False) + "\n")
-
-
-def install_claude(home):
-    path = home / ".claude" / "settings.json"
-    config = load(path, {})
-    changed = ensure_hooks(config, CLAUDE_HOOKS)
-    allow = config.setdefault("permissions", {}).setdefault("allow", [])
-    for rule in CLAUDE_ALLOW:
-        if rule not in allow:
-            allow.append(rule)
-            changed.append(rule)
-    if changed:
-        save(path, config)
-    return path, changed
-
-
-def install_codex(home):
-    path = home / ".codex" / "hooks.json"
-    config = load(path, {"hooks": {}})
-    changed = ensure_hooks(config, CODEX_HOOKS)
-    if changed:
-        save(path, config)
-    return path, changed
-
-
 def main():
-    home = Path.home()
-    for installer in (install_claude, install_codex):
-        path, changed = installer(home)
-        print(f"{path}: " + (f"added {', '.join(changed)}" if changed else "already installed"))
-    print("Codex: open /hooks once in the Codex TUI and trust the new hooks.")
+    for path in (Path.home() / ".claude/settings.json", Path.home() / ".codex/hooks.json"):
+        print(f"{path}: " + ("removed session-report automation" if migrate(path) else "no session-report automation"))
     return 0
 
 

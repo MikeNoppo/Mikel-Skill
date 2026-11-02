@@ -26,7 +26,7 @@ Script hanya menghapus hook skill ini dan permission khusus yang dulu dipasangny
 
 Percakapan menjadi sumber cakupan kerja. File sesi dicantumkan eksplisit; hash commit penuh hanya dimasukkan bila terbukti dibuat dalam sesi. Renderer membaca kondisi git saat dipanggil, menampilkan patch commit yang dicantumkan dan perubahan file yang belum di-commit. Commit upstream tidak otomatis dianggap pekerjaan sesi. Metadata commit versi lama tetap dapat dibaca untuk laporan sesi yang sudah ada. Perubahan bersamaan pada file yang sama dapat membuat atribusi ambigu; jelaskan batas bukti atau gunakan worktree terpisah.
 
-Renderer memvalidasi JSON dengan schema tetap, memakai template HTML, dan menyematkan Mermaid 11.12.0 lokal sehingga diagram bekerja offline. CSP memblokir koneksi jaringan. Folder laporan/state dibatasi ke pemilik (0700), file baru 0600. `SESSION_REPORT_DIR` mengganti folder laporan; `SESSION_REPORT_NOTIFY=0` mematikan notifikasi desktop bila render dipanggil tanpa `--open`.
+Renderer memvalidasi JSON dengan schema tetap, memakai template HTML, dan menyematkan Mermaid 11.12.0 lokal sehingga diagram bekerja offline. CSP memblokir koneksi jaringan. Folder laporan/state dibatasi ke pemilik (0700), file baru 0600. `SESSION_REPORT_DIR` mengganti folder laporan; Notifikasi desktop tidak digunakan.
 
 ## Verifikasi
 
