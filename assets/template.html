@@ -2,6 +2,7 @@
 <html lang="id">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{TITLE}}</title>
 <style>
@@ -143,6 +144,7 @@
     setTimeout(() => { button.textContent = 'Salin'; }, 1500);
   }));
 </script>
+{{MERMAID}}
 <script type="module">
   const blocks = [...document.querySelectorAll('pre.mermaid')];
   const warn = (block, text) => block.insertAdjacentHTML('beforebegin', `<div class="callout warn">${text}</div>`);
@@ -167,7 +169,7 @@
       ? ['classDef baru fill:#193326,stroke:#4cc58a,stroke-width:2px,color:#e6ece8', 'classDef ubah fill:#172a39,stroke:#7ab8e6,stroke-width:2px,color:#e6ece8', 'classDef hapus fill:#3a1d1a,stroke:#ff8a7d,stroke-width:2px,stroke-dasharray:5 4,color:#e6ece8']
       : ['classDef baru fill:#e3f3ea,stroke:#127a4a,stroke-width:2px,color:#1b2420', 'classDef ubah fill:#e3f0fa,stroke:#1f5f8b,stroke-width:2px,color:#1b2420', 'classDef hapus fill:#fde7e4,stroke:#a3261b,stroke-width:2px,stroke-dasharray:5 4,color:#1b2420'];
     try {
-      const { default: mermaid } = await import('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs');
+      const mermaid = window.mermaid;
       mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'base', themeVariables: palette });
       for (const [index, block] of blocks.entries()) {
         let source = block.textContent;
@@ -184,7 +186,7 @@
         }
       }
     } catch {
-      blocks.forEach((block) => warn(block, 'Mermaid tidak bisa dimuat (offline?). Source diagram ditampilkan di bawah.'));
+      blocks.forEach((block) => warn(block, 'Mermaid gagal dimuat. Source diagram ditampilkan di bawah.'));
     }
   }
 </script>

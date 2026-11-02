@@ -607,7 +607,9 @@ def next_section(report):
 
 def page(title, body):
     template = common.TEMPLATE.read_text()
-    return template.replace("{{TITLE}}", e(title)).replace("{{BODY}}", body)
+    bundle = (common.SKILL_DIR / "assets/vendor/mermaid-11.12.0.min.js").read_text() if 'class="mermaid"' in body else ""
+    script = "<script>" + re.sub(r"</script", r"<\\/script", bundle, flags=re.I) + "</script>" if bundle else ""
+    return template.replace("{{TITLE}}", e(title)).replace("{{BODY}}", body).replace("{{MERMAID}}", script)
 
 
 def build(sid, report, groups, harness, moment, bases):
