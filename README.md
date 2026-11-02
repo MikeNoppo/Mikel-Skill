@@ -26,6 +26,12 @@ Script hanya menghapus hook skill ini dan permission khusus yang dulu dipasangny
 
 Tema White dan Black dapat dipilih melalui tombol di kanan atas HTML. Default White; pilihan disimpan di browser bila localStorage tersedia. Diagram dirender ulang sesuai tema. Navigasi bagian berada di kiri pada desktop dan horizontal pada layar kecil. Isi memakai pemisah tipis, warna status secukupnya, diagram offline, diff yang dapat dibuka, dan layout cetak.
 
+## Cetak dan PDF
+
+Gunakan Ctrl+P lalu Save as PDF. Layout cetak memakai A4, margin dokumen, nomor halaman dan tema putih, termasuk diagram meskipun layar memakai Black. Sidebar serta kontrol disembunyikan. Diff dibuka saat mencetak dan dikembalikan sesudahnya. Aktifkan Background graphics untuk mempertahankan warna status/diff; matikan Headers and footers bawaan browser agar URL lokal dan tanggal tidak ikut tercetak.
+
+Judul mengikuti kontennya, header tabel berulang pada halaman berikutnya, dan baris tabel, diagram beserta penjelasan, screenshot serta blok singkat diusahakan tetap utuh. Blok yang lebih tinggi dari satu halaman tetap harus dibagi; diff panjang dibungkus dan dapat berlanjut antarhalaman. Jeda kosong dapat muncul agar satu blok tidak terbelah. Batas diff yang memang dipotong renderer tetap berlaku dan ditandai di laporan.
+
 ## Bukti dan privasi
 
 Percakapan menjadi sumber cakupan kerja. File sesi dicantumkan eksplisit; hash commit penuh hanya dimasukkan bila terbukti dibuat dalam sesi. Renderer membaca kondisi git saat dipanggil, menampilkan patch commit yang dicantumkan dan perubahan file yang belum di-commit. Commit upstream tidak otomatis dianggap pekerjaan sesi. Metadata commit versi lama tetap dapat dibaca untuk laporan sesi yang sudah ada. Perubahan bersamaan pada file yang sama dapat membuat atribusi ambigu; jelaskan batas bukti atau gunakan worktree terpisah.

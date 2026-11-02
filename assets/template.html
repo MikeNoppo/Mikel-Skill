@@ -140,11 +140,6 @@
     .diagram { padding:16px 10px; } .decision { padding:16px; }
   }
   @media(prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } }
-  @media print {
-    nav,button.copy,dialog { display:none; } header { margin:0; padding:0; } main { margin:0; padding:0; max-width:none; }
-    body { font-size:11px; } header h1 { font-size:28px; } section { padding:22px 0; } .pair { grid-template-columns:1fr; }
-    .diagram,.decision,.card,figure { break-inside:avoid; } pre.diff { max-height:none; white-space:pre-wrap; } footer { font-size:9px; }
-  }
   :root[data-theme="black"] {
     color-scheme:dark;
     --bg:#111315; --card:#171a1e; --ink:#e2e5e9; --muted:#a0a9b5; --line:#30353c;
@@ -173,7 +168,90 @@
   :root[data-theme="black"] pre.diff .h { color:var(--info); }
   :root[data-theme="black"] button.copy { background:var(--card); color:var(--ink); border-color:var(--line); }
   @media(max-width:760px) { .theme-switch { position:relative; top:auto; right:auto; width:max-content; margin:14px 24px -10px auto; } }
-  @media print { .theme-switch { display:none; } }
+  .print-diagram { display:none; }
+  @page {
+    size:A4;
+    margin:16mm 15mm 18mm;
+    @bottom-left { content:"SESSION REPORT"; font:8pt sans-serif; color:#68717e; }
+    @bottom-right { content:counter(page) " / " counter(pages); font:8pt sans-serif; color:#68717e; }
+  }
+  @media print {
+    :root,:root[data-theme="black"] {
+      color-scheme:light;
+      --bg:#fff; --card:#fff; --ink:#20242c; --muted:#68717e; --line:#e5e7eb;
+      --brand:#247254; --brand-soft:#edf7f1; --warn:#895e16; --warn-soft:#fbf5e8;
+      --bad:#aa3c3c; --bad-soft:#fcf0ef; --info:#375f92; --info-soft:#eef3fa; --code:#f5f6f8;
+    }
+    * { -webkit-print-color-adjust:exact; print-color-adjust:exact; box-shadow:none !important; }
+    html { scroll-behavior:auto; }
+    body { margin:0; background:white !important; color:var(--ink); font-size:10pt; line-height:1.55; }
+    nav,.theme-switch,button.copy,dialog { display:none !important; }
+    header,body:not(:has(nav)) header { max-width:none; margin:0; padding:0; break-inside:avoid; }
+    header .wrap { padding-bottom:7mm; }
+    header h1 { font-size:27pt; line-height:1.16; max-width:none; }
+    .eyebrow { font-size:8pt; margin-bottom:4mm; }
+    .verdict { margin-top:5mm; font-size:9pt; }
+    .pills { margin-top:4mm; gap:2mm 4mm; }
+    .pill { font-size:8pt; }
+    main,body:not(:has(nav)) main { margin:0; padding:0; max-width:none; }
+    section { padding:7mm 0; break-inside:auto; scroll-margin:0; }
+    h2 { font-size:15pt; margin-bottom:4mm; }
+    h3 { font-size:11pt; margin:5mm 0 3mm; }
+    h4 { font-size:8pt; }
+    h2,h3,h4,.lead,.legend,summary,.step-head { break-after:avoid; }
+    p,li { orphans:3; widows:3; }
+    .lead { font-size:9.5pt; margin:0 0 4mm; }
+    .grid:not(.g4) { display:block; }
+    .pair { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:4mm; break-inside:avoid; }
+    .g4 { display:flex; flex-wrap:wrap; gap:4mm 0; break-inside:avoid; }
+    .stat { flex:1; min-width:24mm; padding:0 3mm; }
+    .stat b { font-size:20pt; }
+    .stat span { font-size:8pt; }
+    .card,.decision,.callout,ul.checks li,ol.steps > li { break-inside:avoid; }
+    .card { margin-bottom:5mm; padding-top:4mm; }
+    .card p,.decision p,.explain,.rec,ul.tight,ol.tight { font-size:9.5pt; }
+    .decision { padding:4mm; background:#fffdfa !important; border-color:#e7dece !important; }
+    .decision.d-info { background:#fcfdff !important; border-color:#dbe2ec !important; }
+    .decision.d-bad { border-color:#edd9d6 !important; }
+    .rec { color:#566457 !important; border-color:var(--line) !important; }
+    .callout { background:#f7f9fc !important; }
+    .callout.warn { background:var(--warn-soft) !important; }
+    .callout.ok { background:var(--brand-soft) !important; }
+    table { font-size:8.5pt; table-layout:fixed; break-inside:auto; }
+    thead { display:table-header-group; }
+    tfoot { display:table-footer-group; }
+    tr { break-inside:avoid; }
+    th,td { padding:2.5mm 2mm; font-size:8.5pt; overflow-wrap:anywhere; }
+    th { font-size:7.5pt; }
+    .commits td:first-child { width:23mm; white-space:normal; }
+    code,.mono,.path,.delta { font-size:8pt; }
+    .tag { font-size:7.5pt; white-space:normal; }
+    .diagram-block,.pair > div,figure { break-inside:avoid; }
+    .pair > div { margin:0 0 5mm; }
+    .diagram { padding:4mm; background:#fcfcfd !important; overflow:visible; break-inside:avoid; }
+    .diagram .rendered:not(.print-diagram) { display:none; }
+    .diagram .print-diagram { display:block; }
+    .diagram svg { width:100% !important; max-width:100% !important; height:auto !important; max-height:85mm; }
+    .explain { margin:3mm 0 0; }
+    figure { overflow:visible; }
+    figure img { max-height:200mm; object-fit:contain; }
+    figure figcaption { font-size:8.5pt; }
+    details.file { break-inside:avoid; }
+    details.file > summary { display:grid; grid-template-columns:14mm minmax(0,2fr) 20mm minmax(0,3fr); gap:2mm; padding:3mm 1mm; font-size:8pt; background:transparent !important; }
+    details.file > summary > :last-child { grid-column:auto; }
+    pre.diff { max-height:none; overflow:visible; white-space:pre-wrap; overflow-wrap:anywhere; background:#fafbfc !important; font-size:7.5pt; line-height:1.5; break-inside:auto; padding:3mm 0; }
+    pre.diff span { white-space:pre-wrap; overflow-wrap:anywhere; break-inside:avoid; padding:0 3mm; }
+    pre.diff .a { background:#edf7ef !important; color:#286141 !important; }
+    pre.diff .d { background:#fbedeb !important; color:#9d4040 !important; }
+    pre.diff .h { color:#587398 !important; }
+    .prompt,.prompt pre { break-inside:auto; }
+    .prompt pre { overflow:visible; padding:4mm; font-size:8pt; orphans:3; widows:3; }
+    ol.steps > li { padding:4mm 0; }
+    dl.step { display:grid; grid-template-columns:23mm 1fr; font-size:9pt; }
+    dl.step dd { margin:0; }
+    footer { font-size:8pt; padding:5mm 0; break-inside:avoid; }
+  }
+
 </style>
 </head>
 <body>
@@ -195,6 +273,15 @@
     syncThemeButtons();
     window.dispatchEvent(new Event('report-theme-change'));
   }));
+  let closedBeforePrint = [];
+  window.addEventListener('beforeprint', () => {
+    closedBeforePrint = [...document.querySelectorAll('details.file:not([open])')];
+    closedBeforePrint.forEach((item) => { item.open = true; });
+  });
+  window.addEventListener('afterprint', () => {
+    closedBeforePrint.forEach((item) => { item.open = false; });
+    closedBeforePrint = [];
+  });
   const zoom = document.getElementById('zoom');
   document.querySelectorAll('figure img').forEach((img) => img.addEventListener('click', () => {
     zoom.querySelector('img').src = img.src;
@@ -244,8 +331,8 @@
     const diagrams = blocks.map((block) => ({ source:block.textContent, node:block }));
     let revision = 0;
     let rendering = Promise.resolve();
-    const renderDiagrams = async () => {
-      const dark = document.documentElement.dataset.theme === 'black';
+    const renderDiagrams = async (printOnly = false) => {
+      const dark = !printOnly && document.documentElement.dataset.theme === 'black';
       const palette = dark ? {
         ...lightPalette, darkMode:true, background:'#111315', primaryColor:'#242c36', primaryBorderColor:'#75869c', primaryTextColor:'#e2e5e9',
         secondaryColor:'#242c36', secondaryBorderColor:'#75869c', secondaryTextColor:'#e2e5e9', tertiaryColor:'#30291c', tertiaryBorderColor:'#b49a6d', tertiaryTextColor:'#e2e5e9',
@@ -267,10 +354,13 @@
           try {
             const { svg } = await mermaid.render(id, source);
             const holder = document.createElement('div');
-            holder.className = 'rendered';
+            holder.className = printOnly ? 'rendered print-diagram' : 'rendered';
             holder.innerHTML = svg;
-            item.node.replaceWith(holder);
-            item.node = holder;
+            if (printOnly) item.node.after(holder);
+            else {
+              item.node.replaceWith(holder);
+              item.node = holder;
+            }
           } catch {
             document.getElementById('d' + id)?.remove();
             const fallback = document.createElement('pre');
@@ -287,6 +377,7 @@
     };
     const scheduleRender = () => { rendering = rendering.then(renderDiagrams); };
     window.addEventListener('report-theme-change', scheduleRender);
+    rendering = rendering.then(() => renderDiagrams(true));
     scheduleRender();
   }
 </script>

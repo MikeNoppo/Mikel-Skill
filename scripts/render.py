@@ -282,7 +282,7 @@ def section(anchor, title, body, lead=""):
 
 def diagram(item):
     explanation = f'<p class="explain">{rich(item["explanation"])}</p>' if item["explanation"] else ""
-    return f'<div class="diagram"><pre class="mermaid">{e(item["mermaid"])}</pre></div>{explanation}'
+    return f'<div class="diagram-block"><div class="diagram"><pre class="mermaid">{e(item["mermaid"])}</pre></div>{explanation}</div>'
 
 
 def legend(*items):
@@ -597,6 +597,14 @@ def next_section(report):
 
 
 def page(title, body):
+    def table_header(match):
+        opening, content = match.group(1), match.group(2)
+        if not content.startswith('<tr><th'):
+            return match.group(0)
+        row, _, remaining = content.partition('</tr>')
+        return opening + '<thead>' + row + '</tr></thead><tbody>' + remaining + '</tbody></table>'
+
+    body = re.sub(r'(<table(?: [^>]*)?>)(.*?)</table>', table_header, body, flags=re.S)
     template = common.TEMPLATE.read_text()
     bundle = (common.SKILL_DIR / "assets/vendor/mermaid-11.12.0.min.js").read_text() if 'class="mermaid"' in body else ""
     script = "<script>" + re.sub(r"</script", r"<\\/script", bundle, flags=re.I) + "</script>" if bundle else ""
