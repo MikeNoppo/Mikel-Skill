@@ -5,6 +5,7 @@ import re
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -13,7 +14,10 @@ SKILL_DIR = Path(__file__).resolve().parent.parent
 SCHEMA = SKILL_DIR / "assets" / "report.schema.json"
 TEMPLATE = SKILL_DIR / "assets" / "template.html"
 SID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}")
-CHANGE_KINDS = {"edit", "git", "review"}
+CHANGE_KINDS = {"edit", "commit", "git", "review"}
+EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+SESSION_REFLOG = ("commit:", "commit (initial):", "commit (amend):", "cherry-pick:", "revert:", "am:")
+REFLOG_TIME = re.compile(r"@\{(\d+)\}")
 
 
 def root():
@@ -36,14 +40,22 @@ def root():
 
 def state_dir():
     path = root() / ".state"
-    path.mkdir(parents=True, exist_ok=True)
+    return private_dir(path)
+
+
+def private_dir(path):
+    path.mkdir(mode=0o700, exist_ok=True)
+    info = path.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid():
+        raise ValueError(f"{path} must be a real directory owned by you")
+    path.chmod(0o700)
     return path
 
 
 def session_dir(sid):
-    path = root() / sid
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    if not valid_sid(sid):
+        raise ValueError("invalid session id")
+    return private_dir(root() / sid)
 
 
 def valid_sid(value):
@@ -87,7 +99,8 @@ def events(sid):
 
 def append_event(sid, event):
     event = {"t": time.time(), **event}
-    with events_path(sid).open("a") as handle:
+    descriptor = os.open(events_path(sid), os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(descriptor, "a") as handle:
         handle.write(json.dumps(event, ensure_ascii=False) + "\n")
 
 
@@ -107,12 +120,15 @@ def load_meta(sid):
 def write_atomic(path, data):
     path = Path(path)
     mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else 0o600
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, mode)
-    with os.fdopen(descriptor, "wb" if isinstance(data, bytes) else "w") as handle:
-        handle.write(data)
-    os.chmod(temporary, mode)
-    os.replace(temporary, path)
+    descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    temporary = Path(name)
+    try:
+        with os.fdopen(descriptor, "wb" if isinstance(data, bytes) else "w") as handle:
+            handle.write(data)
+        os.chmod(temporary, mode)
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 @contextmanager
@@ -133,11 +149,12 @@ def update_meta(sid, **changes):
     return meta
 
 
-def git(cwd, *args, ok=(0,)):
+def git(cwd, *args, ok=(0,), input_text=None):
     try:
         result = subprocess.run(
             ["git", "-c", "core.quotePath=false", "-C", str(cwd), *args],
             capture_output=True,
+            input=input_text,
             text=True,
             errors="replace",
             timeout=30,
@@ -165,11 +182,24 @@ def repo_root(path):
     return git(directory, "rev-parse", "--show-toplevel") or None
 
 
-def remember_repo(sid, repo, base=None):
-    with locked_meta(sid) as meta:
-        repos = meta.setdefault("repos", {})
-        if repo not in repos:
-            repos[repo] = {"base": base or git(repo, "rev-parse", "HEAD"), "first_at": time.time()}
+def reflog(repo):
+    entries = []
+    for line in (git(repo, "reflog", "--date=unix", "--format=%H%x09%gd%x09%gs") or "").splitlines():
+        sha, selector, subject = (line.split("\t", 2) + ["", ""])[:3]
+        moment = REFLOG_TIME.search(selector)
+        if moment:
+            entries.append((sha, int(moment.group(1)), subject))
+    return entries
+
+
+def repo_state(repo, entries):
+    return {"reflog": len(entries), "upstream": git(repo, "rev-parse", "--verify", "-q", "@{u}")}
+
+
+def patch_id(repo, sha):
+    patch = git(repo, "show", "--format=", "--binary", sha)
+    result = git(repo, "patch-id", "--stable", input_text=patch) if patch else None
+    return result.split()[0] if result else None
 
 
 def is_under(path, parent):
