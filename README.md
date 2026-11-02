@@ -28,7 +28,7 @@ Model menulis JSON dengan schema tetap; renderer menyusun HTML, bukti git, diff,
 
 ## Pencatatan dan biaya
 
-PreToolUse/PostToolUse membandingkan reflog dan kondisi repo. Hanya commit lokal yang muncul di dalam operasi tool yang dimasukkan; commit yang masuk lewat pull/merge tidak diatribusikan ke sesi. Patch ditampilkan per commit sesi, dilanjutkan perubahan yang belum di-commit. Commit yang di-rebase dicocokkan melalui patch-id. Push, checkout, switch, dan stash memperbarui kondisi laporan.
+PreToolUse/PostToolUse membandingkan reflog dan kondisi repo. Command shell membandingkan seluruh repo yang sudah dikenal sesi, termasuk perubahan ke repo lain dari cwd berbeda. Path literal absolut/relatif yang menyebut repo lain juga diperiksa sebelum command berjalan. Path yang dihitung sepenuhnya secara dinamis dan belum pernah ditemukan dapat memerlukan daftar file eksplisit pada laporan manual. Hanya commit lokal yang muncul di dalam operasi tool yang dimasukkan; commit yang masuk lewat pull/merge tidak diatribusikan ke sesi. Patch ditampilkan per commit sesi, dilanjutkan perubahan yang belum di-commit. Commit yang di-rebase dicocokkan melalui patch-id. Push, checkout, switch, dan stash memperbarui kondisi laporan.
 
 Perubahan sebelum hook terpasang tidak direkonstruksi dengan menebak history. Tuliskan file yang belum tercatat pada `repos[].files`; commit historis hanya ditampilkan bila benar-benar tercatat. Pekerjaan bersamaan di working tree yang sama selama satu tool berjalan dapat membuat atribusi ambigu. Gunakan worktree terpisah untuk sesi paralel.
 
