@@ -17,6 +17,9 @@ SID = "11111111-2222-3333-4444-555555555555"
 FAKE_CODEX = """#!/usr/bin/python3
 import json, os, sys
 args = sys.argv
+if len(args) > 1 and args[1] == "queue":
+    json.dump(args, open(os.environ["FAKE_QUEUE_ARGS"], "w"))
+    sys.exit(1 if os.environ.get("FAKE_QUEUE_FAIL") == "1" else 0)
 report = json.load(open(os.environ["FAKE_REPORT"]))
 report["skip"] = os.environ.get("FAKE_SKIP") == "1"
 json.dump(report, open(args[args.index("-o") + 1], "w"))
@@ -47,7 +50,7 @@ class SessionReportTest(unittest.TestCase):
         self.reports = self.base / "reports"
         self.repo = self.base / "SI-ISPO-BE"
         (self.repo / "auth").mkdir(parents=True)
-        self.env = {**os.environ, "SESSION_REPORT_DIR": str(self.reports), "SESSION_REPORT_NOTIFY": "0", "SESSION_REPORT_DELAY": "0", "SESSION_REPORT_COOLDOWN": "0", "CLAUDE_CODE_SESSION_ID": SID}
+        self.env = {**os.environ, "SESSION_REPORT_DIR": str(self.reports), "SESSION_REPORT_NOTIFY": "0", "SESSION_REPORT_DELAY": "0", "SESSION_REPORT_COOLDOWN": "0", "CLAUDE_CODE_SESSION_ID": SID, "FAKE_QUEUE_ARGS": str(self.base / "queue-args.json"), "SESSION_REPORT_CHAT": "1"}
         self.env.pop("SESSION_REPORT_CHILD", None)
         self.git("init", "-q", "-b", "develop")
         self.git("config", "user.email", "test@example.com")
@@ -266,6 +269,45 @@ class SessionReportTest(unittest.TestCase):
         self.assertEqual(self.meta()["spawned_count"], 1)
         self.assertEqual(self.gate("codex"), {})
 
+    def test_codex_report_is_queued_to_original_chat(self):
+        self.run_codex(skip=False)
+        queue = json.loads((self.base / "queue-args.json").read_text())
+        self.assertEqual(queue[1], "queue")
+        self.assertEqual(queue[queue.index("--thread")+1], SID)
+        message = queue[queue.index("--message")+1]
+        self.assertIn("[session-report:completed]", message)
+        self.assertIn("Laporan sesi: [Buka laporan]", message)
+        self.assertIn(self.meta()["html"], message)
+        self.assertEqual(self.meta()["chat_delivered_report"], self.meta()["report"])
+
+    def test_same_report_is_not_queued_twice(self):
+        self.run_codex(skip=False)
+        queued = self.base / "queue-args.json"
+        before = queued.stat().st_mtime_ns
+        code = "import sys;sys.path.insert(0,sys.argv[1]);import delivery;delivery.codex(sys.argv[2],sys.argv[3],sys.argv[4])"
+        result = subprocess.run([sys.executable,"-c",code,str(SCRIPTS),SID,self.meta()["html"],str(self.base/"codex")], env=self.env,capture_output=True,text=True)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(queued.stat().st_mtime_ns,before)
+
+    def test_chat_can_be_disabled_independently(self):
+        self.env["SESSION_REPORT_CHAT"] = "0"
+        self.run_codex(skip=False)
+        self.assertTrue(Path(self.meta()["html"]).exists())
+        self.assertFalse((self.base / "queue-args.json").exists())
+
+    def test_skip_has_no_chat_notification(self):
+        self.run_codex(skip=True)
+        self.assertFalse((self.base / "queue-args.json").exists())
+        self.run_claude(skip=True)
+        self.assertNotIn("session-report:completed", self.last_claude_gate.stderr)
+
+    def test_failed_chat_delivery_keeps_html(self):
+        self.env["FAKE_QUEUE_FAIL"] = "1"
+        self.run_codex(skip=False)
+        self.assertTrue(Path(self.meta()["html"]).exists())
+        self.assertTrue(self.meta()["chat_delivery_error"])
+        self.assertNotIn("chat_delivered_report", self.meta())
+
     def test_codex_skip_rearms_the_gate(self):
         self.run_codex(skip=True)
         self.assertFalse((self.reports / f"SI-ISPO-BE-{hashlib.sha256(SID.encode()).hexdigest()[:12]}.html").exists())
@@ -281,8 +323,8 @@ class SessionReportTest(unittest.TestCase):
                          "FAKE_INVALID": "1" if invalid else "0", "CLAUDECODE": "1"})
         self.edit_login()
         result = self.run_script("gate.py", {"session_id":SID,"cwd":str(self.repo),"model":"claude-parent-test"}, "--harness", "claude")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(result.stdout), {})
+        self.assertEqual(result.returncode, 0 if skip or invalid else 2, result.stderr)
+        self.last_claude_gate = result
         self.assertTrue(wait_for(lambda: args_path.exists() and "worker_pid" not in self.meta()))
         return json.loads(args_path.read_text())
 
@@ -296,6 +338,8 @@ class SessionReportTest(unittest.TestCase):
         self.assertEqual(args[args.index("--tools")+1], "Read")
         self.assertEqual(self.meta()["harness"], "claude")
         self.assertTrue(Path(self.meta()["html"]).exists())
+        self.assertIn("Laporan sesi: [Buka laporan]", self.last_claude_gate.stderr)
+        self.assertEqual(self.gate(), {})
 
     def test_claude_skip_and_failed_output_rearm_without_report(self):
         self.run_claude(skip=True)
@@ -331,6 +375,8 @@ class SessionReportTest(unittest.TestCase):
         self.assertEqual(claude["permissions"]["allow"][0], "Bash(git *)")
         self.assertIn("Edit(//tmp/session-reports/**)", claude["permissions"]["allow"])
         self.assertEqual(len(claude["hooks"]["Stop"]), 2)
+        self.assertTrue(claude["hooks"]["Stop"][1]["hooks"][0]["asyncRewake"])
+        self.assertEqual(claude["hooks"]["Stop"][1]["hooks"][0]["timeout"], 1900)
         self.assertEqual(len(claude["hooks"]["PostToolUse"]), 1)
         self.assertEqual(json.loads((home / ".claude" / "settings.json.bak-session-report").read_text()), original)
         codex = json.loads((home / ".codex" / "hooks.json").read_text())
