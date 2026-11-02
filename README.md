@@ -6,7 +6,7 @@ Laporan mencakup status siap commit/PR, implementasi per repo, diagram arsitektu
 
 ## Pasang
 
-Butuh Linux, Python 3.10+, git, serta Claude Code dan/atau Codex CLI yang mendukung lifecycle hooks. Tidak ada dependency Python tambahan. Claude Code menggunakan fork subagent; Codex menggunakan `codex exec fork --ephemeral`.
+Butuh Linux, Python 3.10+, git, serta Claude Code dan/atau Codex CLI yang mendukung lifecycle hooks. Tidak ada dependency Python tambahan. Claude Code menggunakan `claude --resume <id> --fork-session --effort low` dengan model sesi asal; Codex menggunakan `codex exec fork --ephemeral` dengan reasoning low. Worker Claude hanya mendapat tool Read, mengembalikan JSON terstruktur, dan tidak mengubah effort sesi utama.
 
 Clone repo private ini ke `~/.agents/skills/session-report`, lalu buat symlink `~/.claude/skills/session-report` ke folder tersebut jika belum ada. Jalankan:
 
@@ -20,7 +20,7 @@ Instruksi skill menggunakan lokasi instalasi di atas. Bila dipasang di lokasi la
 
 ## Pakai
 
-Manual: `/session-report` di Claude Code atau `$session-report` di Codex. Otomatis: saat turn yang memiliki perubahan selesai, Stop hook memicu laporan background. Jika agent masih menunggu jawaban yang dibutuhkan untuk melanjutkan tugas, laporan ditunda.
+Manual: `/session-report` di Claude Code atau `$session-report` di Codex. Otomatis: saat turn yang memiliki perubahan selesai, Stop hook memicu laporan background. Worker membaca konteks sesi; jika agent masih menunggu jawaban yang dibutuhkan untuk melanjutkan tugas, worker mengembalikan skip dan HTML tidak dibuat.
 
 Hasil ada di `/tmp/session-reports/`: satu HTML per sesi (hash 12 karakter dari seluruh session ID), `latest.html`, dan `index.html`. Folder dibatasi ke user pemilik (0700). Di Omarchy, klik notifikasi untuk membuka laporan; desktop lain mendapat notifikasi jika `notify-send` tersedia. Data ini sementara dan bisa hilang saat reboot.
 
@@ -32,7 +32,7 @@ PreToolUse/PostToolUse membandingkan reflog dan kondisi repo. Hanya commit lokal
 
 Perubahan sebelum hook terpasang tidak direkonstruksi dengan menebak history. Tuliskan file yang belum tercatat pada `repos[].files`; commit historis hanya ditampilkan bila benar-benar tercatat. Pekerjaan bersamaan di working tree yang sama selama satu tool berjalan dapat membuat atribusi ambigu. Gunakan worktree terpisah untuk sesi paralel.
 
-Laporan background membaca konteks sesi dan memakai kuota akun. Default cooldown lima menit: perubahan selama jeda tetap pending dan diproses pada akhir turn berikutnya setelah jeda berakhir. Tidak ada timer yang membuat laporan ketika sesi sedang diam. Laporan manual selalu bisa dijalankan.
+Laporan background membaca konteks sesi dan memakai kuota akun. Claude memakai salinan sesi lewat proses CLI terpisah karena effort pada subagent `fork` di Claude Code 2.1.312 selalu mengikuti parent dan mengabaikan override. Proses CLI tidak menjamin berbagi prompt cache seperti fork in-process; kuota bisa lebih besar walaupun reasoning low. Default cooldown lima menit: perubahan selama jeda tetap pending dan diproses pada akhir turn berikutnya setelah jeda berakhir. Tidak ada timer yang membuat laporan ketika sesi sedang diam. Laporan manual selalu bisa dijalankan.
 
 | Environment | Default | Fungsi |
 |---|---|---|
