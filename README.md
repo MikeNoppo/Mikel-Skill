@@ -22,7 +22,7 @@ Instruksi skill menggunakan lokasi instalasi di atas. Bila dipasang di lokasi la
 
 Manual: `/session-report` di Claude Code atau `$session-report` di Codex. Otomatis: saat turn yang memiliki perubahan selesai, Stop hook memicu laporan background. Worker membaca konteks sesi; jika agent masih menunggu jawaban yang dibutuhkan untuk melanjutkan tugas, worker mengembalikan skip dan HTML tidak dibuat.
 
-Hasil ada di `/tmp/session-reports/`: satu HTML per sesi (hash 12 karakter dari seluruh session ID), `latest.html`, dan `index.html`. Folder dibatasi ke user pemilik (0700). Di Omarchy, klik notifikasi untuk membuka laporan; desktop lain mendapat notifikasi jika `notify-send` tersedia. Data ini sementara dan bisa hilang saat reboot.
+Hasil ada di `/tmp/session-reports/`: satu HTML per sesi (hash 12 karakter dari seluruh session ID), `latest.html`, dan `index.html`. Folder dibatasi ke user pemilik (0700). Di Omarchy, klik notifikasi untuk membuka laporan; desktop lain mendapat notifikasi jika `notify-send` tersedia. Setelah selesai, link juga dikirim ke chat asal sebagai `Laporan sesi: Buka laporan`. Codex menggunakan `codex queue` untuk meminta satu balasan singkat di thread asal; Claude memakai Stop hook `asyncRewake` yang membangunkan percakapan setelah worker selesai. Pesan baru ini memakai satu giliran singkat pada model sesi utama. Data laporan sementara dan bisa hilang saat reboot.
 
 Model menulis JSON dengan schema tetap; renderer menyusun HTML, bukti git, diff, dan screenshot. Mermaid 11.12.0 disertakan lokal, diverifikasi terhadap SHA-512 paket npm saat pengambilan. HTML menyematkan bundle dan dapat dibuka offline. Content Security Policy memblokir koneksi jaringan.
 
@@ -38,10 +38,11 @@ Laporan background membaca konteks sesi dan memakai kuota akun. Claude memakai s
 |---|---|---|
 | `SESSION_REPORT_COOLDOWN` | `300` | Jeda minimum laporan otomatis, detik; `0` menonaktifkan jeda |
 | `SESSION_REPORT_DIR` | `/tmp/session-reports` | Folder absolut milik user untuk laporan dan state |
-| `SESSION_REPORT_NOTIFY` | `1` | `0` menonaktifkan notifikasi |
+| `SESSION_REPORT_NOTIFY` | `1` | `0` menonaktifkan notifikasi desktop |
+| `SESSION_REPORT_CHAT` | `1` | `0` menonaktifkan pesan link otomatis di chat |
 | `SESSION_REPORT_CHILD` | tidak disetel | `1` mencegah hook rekursif di worker laporan |
 
-Manual mode memakai `CODEX_THREAD_ID` atau `CLAUDE_CODE_SESSION_ID` sesuai harness. Bila environment tidak menyediakan ID, `auto` membuat identitas baru yang unik dan tidak mengambil laporan sesi lain.
+Manual mode memakai `CODEX_THREAD_ID` atau `CLAUDE_CODE_SESSION_ID` sesuai harness. Bila environment tidak menyediakan ID, `auto` membuat identitas baru yang unik dan tidak mengambil laporan sesi lain. Jika pengiriman chat gagal atau sesi sudah ditutup, laporan tetap tersedia melalui file dan notifikasi desktop; error pengiriman dicatat di state sesi. Pesan chat Claude memerlukan sesi interaktif yang masih hidup: mode `claude -p` membatalkan async hook saat teardown.
 
 ## Verifikasi
 

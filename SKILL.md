@@ -9,7 +9,7 @@ allowed-tools: Read Edit(//tmp/session-reports/**) Bash(python3 /home/mikel/.age
 
 The developer reviews agent work through this report instead of scrolling the chat: the agent builds, the developer decides. Write for a reviewer who has ten seconds first and ten minutes later. The reading order is fixed: the **verdict** (can this ship?), then the **decisions** waiting on the developer, then what changed and **why**, then the **evidence**.
 
-You write data only: one `report.json` that matches `assets/report.schema.json`. `scripts/render.py` owns everything else: the HTML layout, the git facts (branches, commits, per-file diffs, push state), screenshot embedding, `index.html` and the desktop notification. That split keeps every report consistent, so the HTML always comes from the renderer.
+You write data only: one `report.json` that matches `assets/report.schema.json`. `scripts/render.py` owns everything else: the HTML layout, the git facts (branches, commits, per-file diffs, push state), screenshot embedding, `index.html` and the desktop notification. After background rendering, the worker returns a ready message to the original chat. When receiving `[session-report:completed]`, reply with the supplied report link as one line; the report is already complete. That split keeps every report consistent, so the HTML always comes from the renderer.
 
 ## Modes
 
@@ -29,4 +29,4 @@ In Background (CLI worker), when the session's last assistant message asks the u
    - Manual: write a new file `/tmp/session-reports/<session-id>/report-<YYYYmmdd-HHMMSS>.json`. Use a fresh name every time; the renderer takes the path you give it.
    - Background (CLI worker): the JSON is your final answer. Stop after this step.
 3. **Render**: `python3 /home/mikel/.agents/skills/session-report/scripts/render.py <session-id> <json-path> --harness <claude|codex>`. Add `--open` in Manual mode so the report opens right away. Background workers render outside the model process using the change count captured when the worker started; newer edits remain pending. Exit code 2 lists JSON/schema errors: fix them in a new file and render again. Exit code 1 reports a path, session id, or environment error: correct that cause before retrying. Automatic reports have a five-minute cooldown; manual reports bypass it. Done when it prints the HTML path.
-4. **Reply** with exactly one line: `Laporan sesi: <html-path>`.
+4. **Reply** with exactly one line: `Laporan sesi: [Buka laporan](<html-path>)`.
