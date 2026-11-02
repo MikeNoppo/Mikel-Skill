@@ -28,7 +28,7 @@ def finish(sid):
             meta.pop("worker_pid", None)
 
 
-def main(sid, cwd):
+def main(sid, cwd, covered_count=None):
     if not common.valid_sid(sid):
         return 2
     time.sleep(float(os.environ.get("SESSION_REPORT_DELAY", "3")))
@@ -57,8 +57,8 @@ def main(sid, cwd):
         release(sid)
         return 1
     try:
-        path = render.render(sid, output, "codex", cwd=cwd)
-    except render.ReportError as error:
+        path = render.render(sid, output, "codex", cwd=cwd, covered_count=int(covered_count) if covered_count is not None else None)
+    except (render.ReportError, OSError, ValueError) as error:
         print(f"report rejected:\n{error}", flush=True)
         release(sid)
         return 1
@@ -72,4 +72,4 @@ def main(sid, cwd):
 
 
 if __name__ == "__main__":
-    sys.exit(main(*sys.argv[1:3]))
+    sys.exit(main(*sys.argv[1:4]))

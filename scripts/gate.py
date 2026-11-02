@@ -12,8 +12,8 @@ import common
 REASON = (
     "[session-report] This session has changes that are not in a session report yet. "
     "If your last message asks the user something they must answer before the task can continue, end your turn now and do nothing else. "
-    "Otherwise launch exactly one background Agent with subagent_type \"fork\", description \"session-report\" and this prompt: "
-    "\"Read {skill} and follow its Background mode (Claude fork). Session id: {sid}\". "
+    "Otherwise launch exactly one background Agent with subagent_type \"fork\", description \"session-report\" run_in_background true and this prompt: "
+    "\"Read {skill} and follow its Background mode (Claude fork). Session id: {sid}. Covered count: {changes}\". "
     "Then end your turn without writing anything else. When that agent's completion notification arrives, reply with only the one line it returned."
 )
 
@@ -24,7 +24,7 @@ def respond(payload=None):
 
 
 def report_running(data):
-    return "session-report" in json.dumps(data.get("background_tasks") or [])
+    return any(isinstance(task, dict) and task.get("description") == "session-report" and task.get("status") == "running" for task in data.get("background_tasks", []))
 
 
 def own_worker(pid, sid):
@@ -44,7 +44,7 @@ def spawn_worker(sid, cwd, meta, changes):
             pass
     log = (common.session_dir(sid) / "worker.log").open("ab")
     process = subprocess.Popen(
-        [sys.executable, str(Path(__file__).with_name("worker.py")), sid, cwd],
+        [sys.executable, str(Path(__file__).with_name("worker.py")), sid, cwd, str(changes)],
         cwd=cwd,
         stdin=subprocess.DEVNULL,
         stdout=log,
@@ -73,10 +73,15 @@ def main():
         return respond()
     changes = common.change_count(sid)
     meta = common.load_meta(sid)
-    if changes <= meta.get("spawned_count", 0):
+    if changes <= max(meta.get("spawned_count", 0), meta.get("reported_count", 0)):
+        return respond()
+    cooldown = max(0, float(os.environ.get("SESSION_REPORT_COOLDOWN", "300")))
+    if time.time() - meta.get("updated_at", 0) < cooldown:
+        return respond()
+    if meta.get("worker_pid") and own_worker(meta["worker_pid"], sid):
         return respond()
     if args.harness == "claude":
-        return respond({"decision": "block", "reason": REASON.format(skill=common.SKILL_DIR / "SKILL.md", sid=sid)})
+        return respond({"decision": "block", "reason": REASON.format(skill=common.SKILL_DIR / "SKILL.md", sid=sid, changes=changes)})
     spawn_worker(sid, data.get("cwd") or os.getcwd(), meta, changes)
     return respond()
 
