@@ -371,6 +371,16 @@ class SessionReportTest(unittest.TestCase):
         self.assertEqual([c[1] for c in self.facts()["commits"]], ["feat(own): local change"])
         self.assertNotIn("foreign.txt", [f["path"] for f in self.facts()["files"]])
 
+    def test_shell_mode_change_refreshes_already_modified_file(self):
+        self.edit_login()
+        self.render(self.write_report())
+        before = len(self.journal())
+        self.track("Bash", {"command": "chmod +x auth/login.go"}, event="PreToolUse")
+        (self.repo / "auth/login.go").chmod(0o755)
+        self.track("Bash", {"command": "chmod +x auth/login.go"})
+        self.assertGreater(len(self.journal()), before)
+        self.assertEqual(self.gate()["decision"], "block")
+
     def test_shell_overwrites_and_new_files_are_captured(self):
         for content in ("first\n", "second\n"):
             before = len(self.journal())

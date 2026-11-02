@@ -90,6 +90,8 @@ def working_files(repo):
         path = Path(repo) / rel
         digest = hashlib.sha256()
         try:
+            if path.exists() or path.is_symlink():
+                digest.update(str(path.lstat().st_mode & 0o111).encode())
             if path.is_symlink():
                 digest.update(os.readlink(path).encode())
             elif path.is_file():
