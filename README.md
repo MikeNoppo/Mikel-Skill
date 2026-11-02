@@ -10,17 +10,37 @@ Sebelum menulis, agent memeriksa laporan sesi melalui `scripts/prepare.py`. Jika
 
 Agent menampilkan link di chat setelah render. `--open` membuka laporan langsung. `latest.html` dan `index.html` membantu menemukan laporan. File di `/tmp` dapat hilang saat reboot. Bila environment tidak menyediakan ID sesi, agent harus memberikan ID sesi asli secara eksplisit.
 
-## Instalasi atau migrasi
+## Instalasi
 
-Butuh Python 3.10+ dan git, tanpa dependency Python tambahan. Clone ke `~/.agents/skills/session-report`; Claude Code memakai symlink `~/.claude/skills/session-report` ke folder yang sama. Codex menemukan skill di folder `.agents/skills`.
+Butuh **git, Python 3.10+**, serta **Claude Code atau Codex**. Tidak ada dependency Python tambahan. Implementasi memakai fasilitas POSIX; Linux sudah diuji, macOS belum diuji menyeluruh. Windows native belum didukung; pengguna Windows dapat memakai WSL dengan browser/opener yang dikonfigurasi di lingkungan WSL.
 
-Untuk melepas konfigurasi otomatis versi lama:
+Jalankan di terminal (tidak perlu sudo atau login GitHub):
 
 ```sh
-python3 ~/.agents/skills/session-report/scripts/install.py
+mkdir -p "$HOME/.agents/skills"
+git clone https://github.com/MikeNoppo/session-report.git "$HOME/.agents/skills/session-report"
+python3 "$HOME/.agents/skills/session-report/scripts/install.py"
 ```
 
-Script hanya menghapus hook skill ini dan permission khusus yang dulu dipasangnya, mempertahankan konfigurasi lain. Backup pertama migrasi disimpan sebagai `.bak-session-report-manual`. Tidak memasang hook baru. Mulai ulang sesi Claude/Codex yang sudah terbuka agar konfigurasi lama tidak lagi tersimpan dalam sesi. Entrypoint `track.py` dan `gate.py` lama menjadi no-op untuk kompatibilitas sesi yang belum dimuat ulang.
+Installer membuat link skill untuk Claude Code dan memastikan lokasi penemuan Codex tersedia. Jika nama folder sudah dipakai instalasi lain, installer berhenti tanpa menimpanya. Instalasi tidak menambahkan hooks atau permission otomatis. Mulai sesi baru setelah instalasi, lalu panggil:
+
+- **Claude Code:** `/session-report`
+- **Codex:** `$session-report`
+
+Skill menggunakan model dan effort percakapan yang sedang berjalan. Tidak perlu Omarchy. Pada Linux biasa, laporan dibuka melalui `xdg-open`; pada macOS memakai `open`. Jika browser tidak terbuka, gunakan link HTML yang ditampilkan di chat.
+
+Untuk memperbarui instalasi:
+
+```sh
+git -C "$HOME/.agents/skills/session-report" pull --ff-only
+python3 "$HOME/.agents/skills/session-report/scripts/install.py"
+```
+
+Repo hanya berisi skill, template, renderer, dan data uji contoh. Laporan sesi dibuat lokal, bukan dikirim atau di-commit ke repo ini. HTML dapat memuat diff kode dan screenshot; periksa isinya sebelum membagikannya.
+
+### Migrasi dari versi otomatis
+
+Command installer yang sama menghapus hook milik skill ini dan permission khusus yang dulu dipasangnya, mempertahankan konfigurasi lain. Backup pertama migrasi disimpan sebagai `.bak-session-report-manual`. Mulai ulang sesi Claude/Codex yang sudah terbuka agar konfigurasi lama tidak lagi tersimpan dalam sesi. Entrypoint `track.py` dan `gate.py` lama menjadi no-op untuk kompatibilitas sesi yang belum dimuat ulang.
 
 ## Tampilan
 
