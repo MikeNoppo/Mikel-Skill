@@ -50,7 +50,30 @@ def migrate(path):
     return changed
 
 
+def link_skill(destination):
+    source = SCRIPTS.parent
+    if destination.is_symlink():
+        if destination.resolve() == source:
+            return False
+        raise ValueError(f"{destination} points elsewhere; keep or move it before installing")
+    if destination.exists():
+        if destination.resolve() == source:
+            return False
+        raise ValueError(f"{destination} already exists; keep or move it before installing")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.symlink_to(source, target_is_directory=True)
+    return True
+
+
 def main():
+    home = Path.home()
+    for destination in (home / ".agents/skills/session-report", home / ".claude/skills/session-report"):
+        try:
+            changed = link_skill(destination)
+        except (OSError, ValueError) as error:
+            print(str(error), file=sys.stderr)
+            return 1
+        print(f"{destination}: " + ("linked skill" if changed else "skill already available"))
     for path in (Path.home() / ".claude/settings.json", Path.home() / ".codex/hooks.json"):
         print(f"{path}: " + ("removed session-report automation" if migrate(path) else "no session-report automation"))
     return 0

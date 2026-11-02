@@ -683,7 +683,9 @@ def write_index():
 
 def browser(path):
     url = path.resolve().as_uri()
-    return ["omarchy-launch-browser", url] if shutil.which("omarchy-launch-browser") else ["xdg-open", url]
+    if shutil.which("omarchy-launch-browser"):
+        return ["omarchy-launch-browser", url]
+    return ["open" if sys.platform == "darwin" else "xdg-open", url]
 
 
 def detach(command):

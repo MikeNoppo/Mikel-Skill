@@ -164,6 +164,28 @@ class ManualReportTest(unittest.TestCase):
         self.assertFalse(install.migrate(path))
         self.assertEqual(json.loads(path.with_name(path.name + '.bak-session-report-manual').read_text()), original)
 
+    def test_installation_links_both_harnesses_and_is_idempotent(self):
+        home = self.base / 'new user'
+        env = {**self.env, 'HOME': str(home)}
+        first = self.run_script('install.py', env=env)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        for relative in ('.agents/skills/session-report', '.claude/skills/session-report'):
+            self.assertEqual((home / relative).resolve(), SKILL)
+        second = self.run_script('install.py', env=env)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertIn('skill already available', second.stdout)
+        self.assertFalse((home / '.codex/hooks.json').exists())
+        self.assertFalse((home / '.claude/settings.json').exists())
+
+    def test_installation_preserves_conflicting_skill_directory(self):
+        destination = self.base / 'existing-skill'
+        destination.mkdir()
+        marker = destination / 'keep.txt'
+        marker.write_text('existing content')
+        with self.assertRaises(ValueError):
+            install.link_skill(destination)
+        self.assertEqual(marker.read_text(), 'existing content')
+
     def test_cached_legacy_hook_entrypoints_have_no_side_effects(self):
         for name in ('track.py', 'gate.py'):
             result = self.run_script(name)
