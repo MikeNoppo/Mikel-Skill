@@ -1,5 +1,5 @@
 import json
-import shutil
+import shlex
 import sys
 from pathlib import Path
 
@@ -7,19 +7,21 @@ import common
 
 SCRIPTS = Path(__file__).resolve().parent
 PYTHON = "/usr/bin/python3"
-TRACK = f"{PYTHON} {SCRIPTS / 'track.py'}"
-CLAUDE_GATE = f"{PYTHON} {SCRIPTS / 'gate.py'} --harness claude"
-CODEX_GATE = f"{PYTHON} {SCRIPTS / 'gate.py'} --harness codex"
+TRACK = f"{PYTHON} {shlex.quote(str(SCRIPTS / 'track.py'))}"
+CLAUDE_GATE = f"{PYTHON} {shlex.quote(str(SCRIPTS / 'gate.py'))} --harness claude"
+CODEX_GATE = f"{PYTHON} {shlex.quote(str(SCRIPTS / 'gate.py'))} --harness codex"
 CLAUDE_ALLOW = [
     "Edit(//tmp/session-reports/**)",
     f"Bash(python3 {SCRIPTS / 'render.py'} *)",
 ]
 CLAUDE_HOOKS = {
+    "PreToolUse": ("Edit|Write|MultiEdit|NotebookEdit|Bash", TRACK),
     "PostToolUse": ("Edit|Write|MultiEdit|NotebookEdit|Bash|ReportFindings|Agent", TRACK),
     "Stop": (None, CLAUDE_GATE),
 }
 CODEX_HOOKS = {
-    "PostToolUse": ("apply_patch|Edit|Write|Bash", TRACK),
+    "PreToolUse": ("apply_patch|Edit|Write|Bash|exec_command|shell|local_shell", TRACK),
+    "PostToolUse": ("apply_patch|Edit|Write|Bash|exec_command|shell|local_shell", TRACK),
     "Stop": (None, CODEX_GATE),
 }
 
@@ -35,8 +37,12 @@ def ensure_hooks(config, wanted):
     hooks = config.setdefault("hooks", {})
     for event, (matcher, command) in wanted.items():
         groups = hooks.setdefault(event, [])
-        if any(hook.get("command") == command for group in groups for hook in group.get("hooks", [])):
+        matches = [(group, hook) for group in groups for hook in group.get("hooks", []) if hook.get("command") == command]
+        if len(matches) == 1 and matches[0][0].get("matcher") == matcher and matches[0][1].get("timeout") == 10 and matches[0][1].get("type") == "command":
             continue
+        for group, hook in matches:
+            group["hooks"].remove(hook)
+        groups[:] = [group for group in groups if group.get("hooks")]
         group = {"hooks": [{"type": "command", "command": command, "timeout": 10}]}
         if matcher:
             group = {"matcher": matcher, **group}
@@ -46,8 +52,11 @@ def ensure_hooks(config, wanted):
 
 
 def save(path, config):
-    if path.exists():
-        shutil.copy2(path, path.with_name(f"{path.name}.bak-session-report"))
+    backup = path.with_name(f"{path.name}.bak-session-report")
+    if path.exists() and not backup.exists():
+        with backup.open("xb") as handle:
+            handle.write(path.read_bytes())
+        backup.chmod(0o600)
     path.parent.mkdir(parents=True, exist_ok=True)
     common.write_atomic(path, json.dumps(config, indent=2, ensure_ascii=False) + "\n")
 
