@@ -30,6 +30,10 @@ def edited_paths(name, tool_input):
 
 def shell_dirs(command, cwd):
     targets = {cwd}
+    for literal in re.findall(r"[\"']((?:\.\.?/|/|~/)[^\"'\n]+)[\"']", command):
+        candidate = os.path.abspath(os.path.join(cwd, os.path.expanduser(literal)))
+        if Path(candidate).exists():
+            targets.add(candidate)
     try:
         lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|\n")
         lexer.whitespace = " \t\r"
@@ -144,6 +148,8 @@ def main():
         targets = paths
     locations = discover(sid, targets)
     repos = set(locations.values())
+    if name in SHELL_TOOLS:
+        repos.update(repo for repo in common.load_meta(sid).get("repos", {}) if Path(repo).is_dir())
     key = str(data.get("tool_use_id") or name)
     if pre and name not in SHELL_TOOLS:
         missing = repos - common.load_meta(sid).get("repos", {}).keys()
