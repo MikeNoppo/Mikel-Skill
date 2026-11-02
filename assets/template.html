@@ -5,6 +5,11 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{TITLE}}</title>
+<script>
+  try {
+    document.documentElement.dataset.theme = localStorage.getItem('session-report-theme') === 'black' ? 'black' : 'white';
+  } catch { document.documentElement.dataset.theme = 'white'; }
+</script>
 <style>
   :root {
     color-scheme: light;
@@ -140,12 +145,56 @@
     body { font-size:11px; } header h1 { font-size:28px; } section { padding:22px 0; } .pair { grid-template-columns:1fr; }
     .diagram,.decision,.card,figure { break-inside:avoid; } pre.diff { max-height:none; white-space:pre-wrap; } footer { font-size:9px; }
   }
+  :root[data-theme="black"] {
+    color-scheme:dark;
+    --bg:#111315; --card:#171a1e; --ink:#e2e5e9; --muted:#a0a9b5; --line:#30353c;
+    --brand:#8bc5a6; --brand-soft:#1c3026; --warn:#dfbc7c; --warn-soft:#30291c;
+    --bad:#e8a09a; --bad-soft:#332322; --info:#a0badf; --info-soft:#202d3e; --code:#20242a;
+  }
+  .theme-switch { position:fixed; top:14px; right:24px; z-index:10; display:flex; gap:2px; padding:3px; border:1px solid var(--line); border-radius:6px; background:var(--bg); }
+  .theme-switch button { border:0; border-radius:3px; padding:5px 10px; background:transparent; color:var(--muted); cursor:pointer; font:inherit; font-size:12px; line-height:1.4; }
+  .theme-switch button[aria-pressed="true"] { background:var(--code); color:var(--ink); font-weight:600; }
+  :root[data-theme="black"] nav { background:#15181c; }
+  :root[data-theme="black"] nav a { color:var(--muted); }
+  :root[data-theme="black"] nav a:hover,:root[data-theme="black"] nav a[aria-current="location"] { background:#272d35; color:var(--ink); }
+  :root[data-theme="black"] .pill + .pill { border-color:var(--line); }
+  :root[data-theme="black"] .card { border-color:#414a56; }
+  :root[data-theme="black"] .decision { background:#1b1a17; border-color:#4b4131; }
+  :root[data-theme="black"] .decision.d-info { background:#171c24; border-color:#344255; }
+  :root[data-theme="black"] .decision.d-bad { border-color:#60413d; }
+  :root[data-theme="black"] .rec { color:var(--brand); border-color:var(--line); }
+  :root[data-theme="black"] .diagram,:root[data-theme="black"] pre.diff { background:#171a1e; }
+  :root[data-theme="black"] .callout { background:#1b2430; }
+  :root[data-theme="black"] .callout.warn { background:var(--warn-soft); }
+  :root[data-theme="black"] .callout.ok { background:var(--brand-soft); }
+  :root[data-theme="black"] details.file > summary:hover,:root[data-theme="black"] details.file[open] > summary { background:var(--code); }
+  :root[data-theme="black"] pre.diff .a { background:#1c3026; color:#9ccdaf; }
+  :root[data-theme="black"] pre.diff .d { background:#332322; color:#e4aaa4; }
+  :root[data-theme="black"] pre.diff .h { color:var(--info); }
+  :root[data-theme="black"] button.copy { background:var(--card); color:var(--ink); border-color:var(--line); }
+  @media(max-width:760px) { .theme-switch { position:relative; top:auto; right:auto; width:max-content; margin:14px 24px -10px auto; } }
+  @media print { .theme-switch { display:none; } }
 </style>
 </head>
 <body>
+<div class="theme-switch" role="group" aria-label="Tema laporan">
+  <button type="button" data-theme-choice="white" aria-pressed="true">White</button>
+  <button type="button" data-theme-choice="black" aria-pressed="false">Black</button>
+</div>
 {{BODY}}
 <dialog id="zoom"><img alt=""></dialog>
 <script>
+  const themeButtons = [...document.querySelectorAll('[data-theme-choice]')];
+  const syncThemeButtons = () => themeButtons.forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.themeChoice === document.documentElement.dataset.theme)));
+  syncThemeButtons();
+  themeButtons.forEach((button) => button.addEventListener('click', () => {
+    const theme = button.dataset.themeChoice;
+    if (document.documentElement.dataset.theme === theme) return;
+    document.documentElement.dataset.theme = theme;
+    try { localStorage.setItem('session-report-theme', theme); } catch {}
+    syncThemeButtons();
+    window.dispatchEvent(new Event('report-theme-change'));
+  }));
   const zoom = document.getElementById('zoom');
   document.querySelectorAll('figure img').forEach((img) => img.addEventListener('click', () => {
     zoom.querySelector('img').src = img.src;
@@ -184,7 +233,7 @@
   const blocks = [...document.querySelectorAll('pre.mermaid')];
   const warn = (block, text) => block.insertAdjacentHTML('beforebegin', `<div class="callout warn">${text}</div>`);
   if (blocks.length) {
-    const palette = {
+    const lightPalette = {
       darkMode:false, background:'#ffffff', primaryColor:'#f2f5f8', primaryBorderColor:'#9aa9bb', primaryTextColor:'#20242c',
       secondaryColor:'#f2f5f8', secondaryBorderColor:'#9aa9bb', secondaryTextColor:'#20242c', tertiaryColor:'#fbf5e8',
       tertiaryBorderColor:'#bba376', tertiaryTextColor:'#20242c', lineColor:'#8190a1', textColor:'#20242c', mainBkg:'#f2f5f8',
@@ -192,27 +241,53 @@
       actorBkg:'#f2f5f8', actorBorder:'#9aa9bb', actorTextColor:'#20242c', actorLineColor:'#d1d8e0', signalColor:'#526174', signalTextColor:'#20242c',
       labelBoxBkgColor:'#f2f5f8', labelBoxBorderColor:'#9aa9bb', edgeLabelBackground:'#ffffff', fontFamily:'system-ui, sans-serif', fontSize:'13px'
     };
-    const classes = ['classDef baru fill:#edf7f1,stroke:#80a28f,stroke-width:1px,color:#254b38', 'classDef ubah fill:#eef3fa,stroke:#8da4c2,stroke-width:1px,color:#334f73', 'classDef hapus fill:#fcf0ef,stroke:#c69a95,stroke-width:1px,stroke-dasharray:5 4,color:#8f4741'];
-    try {
-      const mermaid = window.mermaid;
-      mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'base', themeVariables: palette });
-      for (const [index, block] of blocks.entries()) {
-        let source = block.textContent;
-        if (/^\s*(flowchart|graph)\b/.test(source)) source += '\n' + classes.join('\n');
-        try {
-          const { svg } = await mermaid.render(`diagram-${index}`, source);
-          const holder = document.createElement('div');
-          holder.className = 'rendered';
-          holder.innerHTML = svg;
-          block.replaceWith(holder);
-        } catch {
-          document.getElementById(`ddiagram-${index}`)?.remove();
-          warn(block, 'Diagram ini gagal dirender. Source Mermaid-nya ditampilkan di bawah.');
+    const diagrams = blocks.map((block) => ({ source:block.textContent, node:block }));
+    let revision = 0;
+    let rendering = Promise.resolve();
+    const renderDiagrams = async () => {
+      const dark = document.documentElement.dataset.theme === 'black';
+      const palette = dark ? {
+        ...lightPalette, darkMode:true, background:'#111315', primaryColor:'#242c36', primaryBorderColor:'#75869c', primaryTextColor:'#e2e5e9',
+        secondaryColor:'#242c36', secondaryBorderColor:'#75869c', secondaryTextColor:'#e2e5e9', tertiaryColor:'#30291c', tertiaryBorderColor:'#b49a6d', tertiaryTextColor:'#e2e5e9',
+        lineColor:'#a0a9b5', textColor:'#e2e5e9', mainBkg:'#242c36', nodeBorder:'#75869c', clusterBkg:'#171a1e', clusterBorder:'#414a56',
+        noteBkgColor:'#30291c', noteBorderColor:'#b49a6d', noteTextColor:'#e2e5e9', actorBkg:'#242c36', actorBorder:'#75869c', actorTextColor:'#e2e5e9',
+        actorLineColor:'#485363', signalColor:'#bdc7d4', signalTextColor:'#e2e5e9', labelTextColor:'#e2e5e9', labelBoxBkgColor:'#242c36', labelBoxBorderColor:'#75869c', edgeLabelBackground:'#171a1e'
+      } : lightPalette;
+      const classes = dark
+        ? ['classDef baru fill:#1c3026,stroke:#80a28f,stroke-width:1px,color:#c4e6d0', 'classDef ubah fill:#202d3e,stroke:#8da4c2,stroke-width:1px,color:#c5d7f0', 'classDef hapus fill:#332322,stroke:#c69a95,stroke-width:1px,stroke-dasharray:5 4,color:#f0c2bd']
+        : ['classDef baru fill:#edf7f1,stroke:#80a28f,stroke-width:1px,color:#254b38', 'classDef ubah fill:#eef3fa,stroke:#8da4c2,stroke-width:1px,color:#334f73', 'classDef hapus fill:#fcf0ef,stroke:#c69a95,stroke-width:1px,stroke-dasharray:5 4,color:#8f4741'];
+      const version = ++revision;
+      try {
+        const mermaid = window.mermaid;
+        mermaid.initialize({ startOnLoad:false, securityLevel:'strict', theme:'base', themeVariables:palette });
+        for (const [index, item] of diagrams.entries()) {
+          let source = item.source;
+          if (/^\s*(flowchart|graph)\b/.test(source)) source += '\n' + classes.join('\n');
+          const id = `diagram-${version}-${index}`;
+          try {
+            const { svg } = await mermaid.render(id, source);
+            const holder = document.createElement('div');
+            holder.className = 'rendered';
+            holder.innerHTML = svg;
+            item.node.replaceWith(holder);
+            item.node = holder;
+          } catch {
+            document.getElementById('d' + id)?.remove();
+            const fallback = document.createElement('pre');
+            fallback.className = 'mermaid';
+            fallback.textContent = item.source;
+            item.node.replaceWith(fallback);
+            item.node = fallback;
+            warn(fallback, 'Diagram ini gagal dirender. Source Mermaid-nya ditampilkan di bawah.');
+          }
         }
+      } catch {
+        diagrams.forEach((item) => warn(item.node, 'Mermaid gagal dimuat. Source diagram ditampilkan di bawah.'));
       }
-    } catch {
-      blocks.forEach((block) => warn(block, 'Mermaid gagal dimuat. Source diagram ditampilkan di bawah.'));
-    }
+    };
+    const scheduleRender = () => { rendering = rendering.then(renderDiagrams); };
+    window.addEventListener('report-theme-change', scheduleRender);
+    scheduleRender();
   }
 </script>
 </body>

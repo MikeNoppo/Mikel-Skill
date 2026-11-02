@@ -24,7 +24,7 @@ Script hanya menghapus hook skill ini dan permission khusus yang dulu dipasangny
 
 ## Tampilan
 
-Tema putih tetap, tipografi charcoal, navigasi bagian di kiri pada desktop dan horizontal pada layar kecil. Isi memakai pemisah tipis, warna status secukupnya, diagram offline, diff yang dapat dibuka, dan layout cetak. Tema OS gelap tidak mengubah warna laporan.
+Tema White dan Black dapat dipilih melalui tombol di kanan atas HTML. Default White; pilihan disimpan di browser bila localStorage tersedia. Diagram dirender ulang sesuai tema. Navigasi bagian berada di kiri pada desktop dan horizontal pada layar kecil. Isi memakai pemisah tipis, warna status secukupnya, diagram offline, diff yang dapat dibuka, dan layout cetak.
 
 ## Bukti dan privasi
 
