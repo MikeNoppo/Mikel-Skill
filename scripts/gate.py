@@ -9,14 +9,6 @@ from pathlib import Path
 
 import common
 
-REASON = (
-    "[session-report] This session has changes that are not in a session report yet. "
-    "If your last message asks the user something they must answer before the task can continue, end your turn now and do nothing else. "
-    "Otherwise launch exactly one background Agent with subagent_type \"fork\", description \"session-report\" run_in_background true and this prompt: "
-    "\"Read {skill} and follow its Background mode (Claude fork). Session id: {sid}. Covered count: {changes}\". "
-    "Then end your turn without writing anything else. When that agent's completion notification arrives, reply with only the one line it returned."
-)
-
 
 def respond(payload=None):
     print(json.dumps(payload or {}))
@@ -35,7 +27,30 @@ def own_worker(pid, sid):
     return any(part.endswith(b"worker.py") for part in command) and sid.encode() in command
 
 
-def spawn_worker(sid, cwd, meta, changes):
+def original_model(data):
+    if data.get("model"):
+        return data["model"]
+    path = data.get("transcript_path")
+    if path:
+        try:
+            model = None
+            with open(path) as handle:
+                for line in handle:
+                    try:
+                        item = json.loads(line)
+                    except ValueError:
+                        continue
+                    if isinstance(item, dict) and item.get("type") == "assistant":
+                        candidate = (item.get("message") or {}).get("model")
+                        if candidate and not candidate.startswith("<"):
+                            model = candidate
+            return model
+        except OSError:
+            pass
+    return None
+
+
+def spawn_worker(sid, cwd, meta, changes, harness="codex", model=""):
     previous = meta.get("worker_pid")
     if previous and own_worker(previous, sid):
         try:
@@ -44,7 +59,7 @@ def spawn_worker(sid, cwd, meta, changes):
             pass
     log = (common.session_dir(sid) / "worker.log").open("ab")
     process = subprocess.Popen(
-        [sys.executable, str(Path(__file__).with_name("worker.py")), sid, cwd, str(changes)],
+        [sys.executable, str(Path(__file__).with_name("worker.py")), sid, cwd, str(changes), harness, model or ""],
         cwd=cwd,
         stdin=subprocess.DEVNULL,
         stdout=log,
@@ -63,6 +78,7 @@ def spawn_worker(sid, cwd, meta, changes):
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--check", action="store_true", help="show whether a report is ready without launching a worker")
     parser.add_argument("--harness", choices=["claude", "codex"], default="claude")
     args = parser.parse_args()
     data = common.read_hook_input()
@@ -80,9 +96,9 @@ def main():
         return respond()
     if meta.get("worker_pid") and own_worker(meta["worker_pid"], sid):
         return respond()
-    if args.harness == "claude":
-        return respond({"decision": "block", "reason": REASON.format(skill=common.SKILL_DIR / "SKILL.md", sid=sid, changes=changes)})
-    spawn_worker(sid, data.get("cwd") or os.getcwd(), meta, changes)
+    if args.check:
+        return respond({"ready": True})
+    spawn_worker(sid, data.get("cwd") or os.getcwd(), meta, changes, args.harness, original_model(data) if args.harness == "claude" else "")
     return respond()
 
 

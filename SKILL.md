@@ -16,18 +16,17 @@ You write data only: one `report.json` that matches `assets/report.schema.json`.
 | Mode | You are here when | Session id |
 |---|---|---|
 | Manual | The user typed `/session-report` (Claude Code) or `$session-report` (Codex) | Claude Code: `${CLAUDE_SESSION_ID}`. Codex: `$CODEX_THREAD_ID` from the shell, or `auto` to let the renderer read it |
-| Background (Claude fork) | You are a forked subagent and your prompt names this mode | Given in the prompt |
-| Background (Codex) | You run inside `codex exec fork` with a read-only sandbox and an output schema | Given in the prompt |
+| Background (CLI worker) | You run in a copied Claude/Codex session with an output schema and read-only tools | Given in the prompt |
 
-In both background modes the developer is not watching: finish without asking anything.
+In background mode the developer is not watching: finish without asking anything.
 
-In Background (Codex), when the session's last assistant message asks the user something they must answer before the task can continue, return `"skip": true` with the other fields minimal but valid. A closing offer such as "mau saya commit?" or "mau saya buka PR?" means the task is finished, so report it normally.
+In Background (CLI worker), when the session's last assistant message asks the user something they must answer before the task can continue, return `"skip": true` with the other fields minimal but valid. A closing offer such as "mau saya commit?" or "mau saya buka PR?" means the task is finished, so report it normally.
 
 ## Steps
 
 1. **Gather evidence** from the whole session, not only the last turn. Done when you can account for every task the user asked for (finished, partial or not started), every file changed and why, every command that verified something together with its actual result, every code review finding and what happened to it, and every assumption made without asking. The conversation is the primary source; read code or run read-only git commands only to fill gaps. Commits are attributed from PreToolUse/PostToolUse snapshots; edits from before hooks were installed may need to be listed explicitly in `repos[].files`. File diffs show session commit patches followed by pending edits, so later upstream changes are excluded.
 2. **Write the data.** Read [REPORT-DATA.md](REPORT-DATA.md) for every field, the status rules and the code review mapping, then fill all fields. Write in Indonesian, address the developer as "kamu", keep technical terms in English (endpoint, middleware, token), and prefer plain words over jargon.
-   - Manual and Background (Claude fork): write a new file `/tmp/session-reports/<session-id>/report-<YYYYmmdd-HHMMSS>.json`. Use the original session id in the background prompt, not the fork id. Use a fresh name every time; the renderer takes the path you give it.
-   - Background (Codex): the JSON is your final answer. Stop after this step.
-3. **Render**: `python3 /home/mikel/.agents/skills/session-report/scripts/render.py <session-id> <json-path> --harness <claude|codex>`. Add `--open` in Manual mode so the report opens right away. In Background (Claude fork), also pass `--covered-count <number>` using the Covered count from your prompt; this leaves changes made after your fork pending for the next report. Exit code 2 lists JSON/schema errors: fix them in a new file and render again. Exit code 1 reports a path, session id, or environment error: correct that cause before retrying. Automatic reports have a five-minute cooldown; manual reports bypass it. Done when it prints the HTML path.
+   - Manual: write a new file `/tmp/session-reports/<session-id>/report-<YYYYmmdd-HHMMSS>.json`. Use a fresh name every time; the renderer takes the path you give it.
+   - Background (CLI worker): the JSON is your final answer. Stop after this step.
+3. **Render**: `python3 /home/mikel/.agents/skills/session-report/scripts/render.py <session-id> <json-path> --harness <claude|codex>`. Add `--open` in Manual mode so the report opens right away. Background workers render outside the model process using the change count captured when the worker started; newer edits remain pending. Exit code 2 lists JSON/schema errors: fix them in a new file and render again. Exit code 1 reports a path, session id, or environment error: correct that cause before retrying. Automatic reports have a five-minute cooldown; manual reports bypass it. Done when it prints the HTML path.
 4. **Reply** with exactly one line: `Laporan sesi: <html-path>`.
