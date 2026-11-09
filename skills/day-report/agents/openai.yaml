@@ -1,0 +1,6 @@
+interface:
+  display_name: "Day Report"
+  short_description: "Laporan harian dengan PR, commit, dan screenshot"
+  default_prompt: "Gunakan $day-report untuk merangkum pekerjaan hari ini beserta PR, commit, perubahan, dan screenshot yang relevan."
+policy:
+  allow_implicit_invocation: false

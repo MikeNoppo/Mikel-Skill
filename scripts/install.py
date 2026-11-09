@@ -2,7 +2,7 @@ import argparse
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-NAMES = ('session-report',)
+NAMES = ('session-report', 'day-report')
 
 
 def install(home):
