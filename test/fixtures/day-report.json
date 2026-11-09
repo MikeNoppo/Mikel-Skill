@@ -1,0 +1,68 @@
+{
+  "version": 1,
+  "date": "2026-11-09",
+  "timezone": "Asia/Jakarta",
+  "scope": "test-project",
+  "title": "Fixture pengujian renderer",
+  "summary": "Data sintetis untuk menguji renderer; bukan laporan pekerjaan nyata.",
+  "status": "finished",
+  "status_note": "Khusus pengujian renderer.",
+  "coverage": [
+    "Fixture pengujian, bukan sumber pekerjaan pengguna."
+  ],
+  "sources": [
+    {
+      "kind": "pr",
+      "repository": "example-project",
+      "reference": "1",
+      "title": "Pengujian validasi formulir",
+      "url": "",
+      "status": "Data pengujian",
+      "contribution": "related",
+      "evidence": "Data sintetis khusus pengujian, tanpa atribusi kepada pengguna."
+    }
+  ],
+  "changes": [
+    {
+      "id": "form-validation",
+      "title": "Validasi formulir",
+      "status": "finished",
+      "before": "Aturan sebelumnya.",
+      "after": "Aturan yang diperiksa.",
+      "why": "Menguji pemformatan laporan.",
+      "steps": [
+        "Periksa formulir."
+      ],
+      "impact": "Tidak mewakili perubahan produk nyata.",
+      "visual": true,
+      "screenshot_ids": [
+        "fixture-image"
+      ],
+      "source_refs": [
+        "1"
+      ]
+    }
+  ],
+  "architecture": {
+    "mermaid": "flowchart LR\n A[\"Pemohon menerima email\"] --> B[\"Form di Portal\"]\n B --> C[\"Backend menyimpan perbaikan\"]",
+    "explanation": "Portal menampilkan form untuk pemohon, sedangkan Backend memproses data di balik layar."
+  },
+  "lifecycle": [],
+  "evidence": {
+    "environment": "Fixture gambar khusus tes, bukan screenshot pekerjaan pengguna.",
+    "steps": [
+      {
+        "id": "fixture-image",
+        "title": "Fixture gambar",
+        "action": "Periksa penguraian gambar.",
+        "observed": "Gambar fixture tersedia.",
+        "context": "Fixture sintetis khusus pengujian renderer, tidak dipakai sebagai bukti pekerjaan.",
+        "verification": "ui_only",
+        "result": "observed",
+        "screenshot": "fixture.png",
+        "captured_at": ""
+      }
+    ]
+  },
+  "risks": []
+}
